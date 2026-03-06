@@ -19,6 +19,9 @@ BusinessControl is a B2B SaaS foundation focused on long-term frontend maintaina
 ```bash
 pnpm install
 pnpm dev
+pnpm db:generate
+pnpm db:push
+pnpm db:check
 pnpm lint
 pnpm typecheck
 pnpm test
