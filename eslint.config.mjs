@@ -84,5 +84,6 @@ export default defineConfig([
     "coverage/**",
     "next-env.d.ts",
     "out/**",
+    "src/generated/**",
   ]),
 ]);
