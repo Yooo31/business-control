@@ -9,8 +9,22 @@ if (!connectionString) {
   process.exit(1);
 }
 
+const url = new URL(connectionString);
+const usesSupabase = url.hostname.endsWith(".supabase.co");
+const sslmode = url.searchParams.get("sslmode");
+const needsSsl = usesSupabase || sslmode !== null;
+const poolUrl = new URL(connectionString);
+
+poolUrl.searchParams.delete("schema");
+poolUrl.searchParams.delete("sslmode");
+
 const pool = new pg.Pool({
-  connectionString,
+  connectionString: poolUrl.toString(),
+  ssl: needsSsl
+    ? {
+        rejectUnauthorized: false,
+      }
+    : undefined,
 });
 
 try {

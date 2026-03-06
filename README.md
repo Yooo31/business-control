@@ -21,13 +21,27 @@ pnpm install
 pnpm dev
 pnpm db:generate
 pnpm db:push
+pnpm db:migrate:deploy
 pnpm db:check
+pnpm db:studio
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
 pnpm validate
 ```
+
+## Supabase + Prisma setup
+
+1. Create a new Supabase project from the Supabase dashboard.
+2. In `Project Settings` -> `Database`, copy the direct Postgres connection string.
+3. Set `DATABASE_URL` in `.env` with the direct connection string on port `5432` and keep `?schema=public&sslmode=require`.
+4. Generate the client with `pnpm db:generate`.
+5. Apply the initial migration with `pnpm db:migrate:deploy`.
+6. Validate access with `pnpm db:check`.
+7. Open Prisma Studio with `pnpm db:studio`.
+
+The repository already contains the first SQL migration in `prisma/migrations`.
 
 ## Project shape
 
