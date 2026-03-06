@@ -19,6 +19,7 @@ BusinessControl is a B2B SaaS foundation focused on long-term frontend maintaina
 ```bash
 pnpm install
 pnpm dev
+pnpm auth:hash-password "my-password"
 pnpm db:generate
 pnpm db:push
 pnpm db:migrate:deploy
@@ -42,6 +43,14 @@ pnpm validate
 7. Open Prisma Studio with `pnpm db:studio`.
 
 The repository already contains the first SQL migration in `prisma/migrations`.
+
+## Authentication setup
+
+1. Set `NEXTAUTH_URL` and `NEXTAUTH_SECRET` in `.env`.
+2. Apply migrations with `pnpm db:migrate:deploy`.
+3. Generate a password hash with `pnpm auth:hash-password "my-password"`.
+4. Insert a user row in the `User` table with the hashed password in `passwordHash`.
+5. Use the default NextAuth credentials sign-in against `/api/auth/signin`.
 
 ## Project shape
 
