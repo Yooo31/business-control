@@ -5,6 +5,12 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/features/auth/components/form-field";
 import { completeOnboardingAction } from "@/features/onboarding/actions";
+import {
+  type CompanyLookupResult,
+  isValidSiren,
+  isValidSiret,
+  normalizeIdentifier,
+} from "@/features/onboarding/company-lookup";
 import { cn } from "@/lib/utils";
 
 const ONBOARDING_STORAGE_KEY = "business-control:onboarding-draft";
@@ -32,6 +38,11 @@ type OnboardingDraftCompany = {
   siret: string;
   companyName: string;
   legalName: string;
+  addressLine: string;
+  postalCode: string;
+  city: string;
+  phone: string;
+  activity: string;
   website: string;
 };
 
@@ -46,6 +57,11 @@ const emptyCompanyDraft: OnboardingDraftCompany = {
   siret: "",
   companyName: "",
   legalName: "",
+  addressLine: "",
+  postalCode: "",
+  city: "",
+  phone: "",
+  activity: "",
   website: "",
 };
 
@@ -77,6 +93,11 @@ function sanitizeCompany(value: unknown): OnboardingDraftCompany {
     siret: readString(value.siret),
     companyName: readString(value.companyName),
     legalName: readString(value.legalName),
+    addressLine: readString(value.addressLine),
+    postalCode: readString(value.postalCode),
+    city: readString(value.city),
+    phone: readString(value.phone),
+    activity: readString(value.activity),
     website: readString(value.website),
   };
 }
@@ -108,6 +129,9 @@ type OnboardingWizardProps = {
 export function OnboardingWizard({ userName }: OnboardingWizardProps) {
   const [draft, setDraft] = useState(initialDraft);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState("");
+  const [lookupError, setLookupError] = useState("");
+  const [isLookupPending, setIsLookupPending] = useState(false);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -139,18 +163,33 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
 
   const currentStep = steps[draft.currentStep] ?? steps[0];
   const canGoBack = draft.currentStep > 0;
-  const identifiersComplete =
-    draft.currentCompany.siren.trim() !== "" &&
-    draft.currentCompany.siret.trim() !== "";
-  const companyInfoComplete = draft.currentCompany.companyName.trim() !== "";
+  const hasValidSiren = isValidSiren(draft.currentCompany.siren);
+  const hasValidSiret = isValidSiret(draft.currentCompany.siret);
+  const identifiersComplete = hasValidSiren || hasValidSiret;
+  const companyInfoComplete =
+    draft.currentCompany.companyName.trim() !== "" ||
+    draft.currentCompany.legalName.trim() !== "";
   const canGoNext =
     (draft.currentStep === 0 && identifiersComplete) ||
     (draft.currentStep === 1 && companyInfoComplete);
+  const sirenError =
+    draft.currentCompany.siren !== "" && !hasValidSiren
+      ? "Le SIREN doit contenir 9 chiffres valides."
+      : "";
+  const siretError =
+    draft.currentCompany.siret !== "" && !hasValidSiret
+      ? "Le SIRET doit contenir 14 chiffres valides."
+      : "";
 
   function updateCompanyField(
     field: keyof OnboardingDraftCompany,
     value: string,
   ) {
+    if (field === "siren" || field === "siret") {
+      setLookupMessage("");
+      setLookupError("");
+    }
+
     setDraft((currentDraft) => ({
       ...currentDraft,
       currentCompany: {
@@ -184,6 +223,8 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
   }
 
   function addAnotherCompany() {
+    setLookupMessage("");
+    setLookupError("");
     setDraft((currentDraft) => ({
       currentStep: 0,
       currentCompany: emptyCompanyDraft,
@@ -193,6 +234,84 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
 
   function clearDraftStorage() {
     window.localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+  }
+
+  function applyLookupResult(company: CompanyLookupResult) {
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      currentCompany: {
+        ...currentDraft.currentCompany,
+        siren: company.siren || currentDraft.currentCompany.siren,
+        siret: company.siret || currentDraft.currentCompany.siret,
+        companyName: company.companyName || currentDraft.currentCompany.companyName,
+        legalName: company.legalName || currentDraft.currentCompany.legalName,
+        addressLine: company.addressLine || currentDraft.currentCompany.addressLine,
+        postalCode: company.postalCode || currentDraft.currentCompany.postalCode,
+        city: company.city || currentDraft.currentCompany.city,
+        phone: company.phone || currentDraft.currentCompany.phone,
+        activity: company.activity || currentDraft.currentCompany.activity,
+      },
+    }));
+  }
+
+  async function runCompanyLookup() {
+    const siren = normalizeIdentifier(draft.currentCompany.siren);
+    const siret = normalizeIdentifier(draft.currentCompany.siret);
+
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      currentCompany: {
+        ...currentDraft.currentCompany,
+        siren,
+        siret,
+      },
+    }));
+    setLookupMessage("");
+    setLookupError("");
+
+    if (!isValidSiren(siren) && !isValidSiret(siret)) {
+      setLookupError("Saisissez un SIREN ou un SIRET valide avant la recherche.");
+      return;
+    }
+
+    setIsLookupPending(true);
+
+    try {
+      const searchParams = new URLSearchParams();
+
+      if (siren !== "") {
+        searchParams.set("siren", siren);
+      }
+
+      if (siret !== "") {
+        searchParams.set("siret", siret);
+      }
+
+      const response = await fetch(`/api/insee/company?${searchParams.toString()}`, {
+        method: "GET",
+      });
+      const payload = (await response.json()) as {
+        company?: CompanyLookupResult;
+        message?: string;
+      };
+
+      if (!response.ok || !payload.company) {
+        setLookupError(
+          payload.message ??
+            "La recherche n'a pas abouti. Vous pouvez continuer manuellement.",
+        );
+        return;
+      }
+
+      applyLookupResult(payload.company);
+      setLookupMessage("Entreprise trouvee. Les champs ont ete pre-remplis.");
+    } catch {
+      setLookupError(
+        "La recherche gouvernementale est indisponible. Vous pouvez continuer manuellement.",
+      );
+    } finally {
+      setIsLookupPending(false);
+    }
   }
 
   return (
@@ -283,23 +402,67 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
             </div>
 
             {draft.currentStep === 0 ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  label="SIREN"
-                  name="siren"
-                  value={draft.currentCompany.siren}
-                  onChange={(event) => {
-                    updateCompanyField("siren", event.currentTarget.value);
-                  }}
-                />
-                <FormField
-                  label="SIRET"
-                  name="siret"
-                  value={draft.currentCompany.siret}
-                  onChange={(event) => {
-                    updateCompanyField("siret", event.currentTarget.value);
-                  }}
-                />
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FormField
+                    label="SIREN"
+                    name="siren"
+                    value={draft.currentCompany.siren}
+                    error={sirenError}
+                    onChange={(event) => {
+                      updateCompanyField(
+                        "siren",
+                        normalizeIdentifier(event.currentTarget.value).slice(0, 9),
+                      );
+                    }}
+                  />
+                  <FormField
+                    label="SIRET"
+                    name="siret"
+                    value={draft.currentCompany.siret}
+                    error={siretError}
+                    onChange={(event) => {
+                      updateCompanyField(
+                        "siret",
+                        normalizeIdentifier(event.currentTarget.value).slice(0, 14),
+                      );
+                    }}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-border/70 bg-background/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold">
+                      Recherche automatique via l&apos;API Sirene
+                    </p>
+                    <p className="text-muted-foreground text-sm leading-6">
+                      Si un identifiant valide est trouve, BusinessControl
+                      pre-remplit la denomination et les informations de base.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="lg"
+                    disabled={isLookupPending}
+                    onClick={() => {
+                      void runCompanyLookup();
+                    }}
+                  >
+                    {isLookupPending ? "Recherche..." : "Rechercher"}
+                  </Button>
+                </div>
+
+                {lookupMessage ? (
+                  <p className="rounded-[var(--radius-md)] border border-primary/20 bg-primary/8 px-4 py-3 text-sm text-foreground">
+                    {lookupMessage}
+                  </p>
+                ) : null}
+
+                {lookupError ? (
+                  <p className="rounded-[var(--radius-md)] border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-foreground">
+                    {lookupError}
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -319,6 +482,48 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
                   value={draft.currentCompany.legalName}
                   onChange={(event) => {
                     updateCompanyField("legalName", event.currentTarget.value);
+                  }}
+                />
+                <div className="md:col-span-2">
+                  <FormField
+                    label="Adresse"
+                    name="addressLine"
+                    value={draft.currentCompany.addressLine}
+                    onChange={(event) => {
+                      updateCompanyField("addressLine", event.currentTarget.value);
+                    }}
+                  />
+                </div>
+                <FormField
+                  label="Code postal"
+                  name="postalCode"
+                  value={draft.currentCompany.postalCode}
+                  onChange={(event) => {
+                    updateCompanyField("postalCode", event.currentTarget.value);
+                  }}
+                />
+                <FormField
+                  label="Ville"
+                  name="city"
+                  value={draft.currentCompany.city}
+                  onChange={(event) => {
+                    updateCompanyField("city", event.currentTarget.value);
+                  }}
+                />
+                <FormField
+                  label="Telephone"
+                  name="phone"
+                  value={draft.currentCompany.phone}
+                  onChange={(event) => {
+                    updateCompanyField("phone", event.currentTarget.value);
+                  }}
+                />
+                <FormField
+                  label="Activite"
+                  name="activity"
+                  value={draft.currentCompany.activity}
+                  onChange={(event) => {
+                    updateCompanyField("activity", event.currentTarget.value);
                   }}
                 />
                 <div className="md:col-span-2">
@@ -363,6 +568,28 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
                       <dd>
                         {draft.currentCompany.legalName || "Non renseigne"}
                       </dd>
+                    </div>
+                    <div className="md:col-span-2">
+                      <dt className="font-medium text-foreground">Adresse</dt>
+                      <dd>{draft.currentCompany.addressLine || "Non renseigne"}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-foreground">
+                        Code postal
+                      </dt>
+                      <dd>{draft.currentCompany.postalCode || "Non renseigne"}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-foreground">Ville</dt>
+                      <dd>{draft.currentCompany.city || "Non renseigne"}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-foreground">Telephone</dt>
+                      <dd>{draft.currentCompany.phone || "Non renseigne"}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-foreground">Activite</dt>
+                      <dd>{draft.currentCompany.activity || "Non renseigne"}</dd>
                     </div>
                     <div className="md:col-span-2">
                       <dt className="font-medium text-foreground">Site web</dt>

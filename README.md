@@ -52,6 +52,13 @@ The repository already contains the first SQL migration in `prisma/migrations`.
 4. Insert a user row in the `User` table with the hashed password in `passwordHash`.
 5. Use the default NextAuth credentials sign-in against `/api/auth/signin`.
 
+## Insee Sirene lookup setup
+
+1. Create an application on the Insee API portal and subscribe it to `SireneV3.11`.
+2. Set `INSEE_API_KEY` in `.env`.
+3. The onboarding lookup calls the API server-side through `/api/insee/company` using the `X-INSEE-Api-Key-Integration` header.
+4. If the Insee key is missing or the lookup fails, onboarding still remains usable manually.
+
 ## Auth flow
 
 - `/signup` creates a user in Prisma, hashes the password with bcrypt and signs the user in automatically.
