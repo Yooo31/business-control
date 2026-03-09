@@ -15,10 +15,32 @@ model User {
   emailVerified       DateTime?
   image               String?
   onboardingCompleted Boolean   @default(false)
+  companies           Company[]
   accounts            Account[]
   sessions            Session[]
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  legalName   String?
+  siren       String?  @db.VarChar(9)
+  siret       String?  @db.VarChar(14)
+  addressLine String
+  postalCode  String?
+  city        String?
+  phone       String
+  email       String
+  website     String
+  activity    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Account {
