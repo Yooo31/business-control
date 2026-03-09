@@ -52,6 +52,13 @@ The repository already contains the first SQL migration in `prisma/migrations`.
 4. Insert a user row in the `User` table with the hashed password in `passwordHash`.
 5. Use the default NextAuth credentials sign-in against `/api/auth/signin`.
 
+## Auth flow
+
+- `/signup` creates a user in Prisma, hashes the password with bcrypt and signs the user in automatically.
+- `/login` signs in with the NextAuth credentials provider.
+- `/dashboard` is protected and reads the session server-side with `auth()`.
+- `proxy.ts` redirects anonymous users to `/login` for private routes.
+
 ## Project shape
 
 ```text

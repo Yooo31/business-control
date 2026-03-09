@@ -2,6 +2,9 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 
+import { AppToaster } from "@/components/providers/app-toaster";
+import { AuthFeedbackListener } from "@/components/providers/auth-feedback-listener";
+import { AuthSessionProvider } from "@/components/providers/auth-session-provider";
 import { siteConfig } from "@/lib/site-config";
 
 export const metadata: Metadata = {
@@ -22,7 +25,11 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang={siteConfig.locale} suppressHydrationWarning>
       <body className="bg-background text-foreground antialiased">
-        {children}
+        <AuthSessionProvider>
+          {children}
+          <AuthFeedbackListener />
+          <AppToaster />
+        </AuthSessionProvider>
       </body>
     </html>
   );
