@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/features/auth/components/form-field";
-import { completeOnboardingAction } from "@/features/onboarding/actions";
+import {
+  type CompanyFormInput,
+  companyFormSchema,
+  validateCompanyField,
+} from "@/features/onboarding/company-form";
 import {
   type CompanyLookupResult,
   isValidSiren,
@@ -19,21 +23,22 @@ const steps = [
   {
     id: "identifiers",
     label: "SIREN / SIRET",
-    description: "Renseignez les identifiants de l'entreprise.",
+    description: "Optionnel. Utilisez la recherche pour pre-remplir les champs.",
   },
   {
     id: "company",
     label: "Informations entreprise",
-    description: "Capturez les informations de base pour l'audit.",
+    description: "Construisez la source de verite editable avant sauvegarde.",
   },
   {
-    id: "next-action",
-    label: "Ajouter ou terminer",
-    description: "Choisissez la suite du flow d'onboarding.",
+    id: "summary",
+    label: "Resume",
+    description: "Revoyez, modifiez ou supprimez avant de terminer.",
   },
 ] as const;
 
-type OnboardingDraftCompany = {
+type OnboardingCompany = {
+  id?: string;
   siren: string;
   siret: string;
   companyName: string;
@@ -42,17 +47,25 @@ type OnboardingDraftCompany = {
   postalCode: string;
   city: string;
   phone: string;
+  email: string;
   activity: string;
   website: string;
 };
 
+type OnboardingCompanyField = Exclude<keyof OnboardingCompany, "id">;
+
 type OnboardingDraft = {
   currentStep: number;
-  currentCompany: OnboardingDraftCompany;
-  companies: OnboardingDraftCompany[];
+  currentCompany: OnboardingCompany;
 };
 
-const emptyCompanyDraft: OnboardingDraftCompany = {
+type OnboardingWizardProps = {
+  initialCompanies: OnboardingCompany[];
+  isOnboardingCompleted: boolean;
+  userName: string | null;
+};
+
+const emptyCompanyDraft: OnboardingCompany = {
   siren: "",
   siret: "",
   companyName: "",
@@ -61,6 +74,7 @@ const emptyCompanyDraft: OnboardingDraftCompany = {
   postalCode: "",
   city: "",
   phone: "",
+  email: "",
   activity: "",
   website: "",
 };
@@ -68,7 +82,42 @@ const emptyCompanyDraft: OnboardingDraftCompany = {
 const initialDraft: OnboardingDraft = {
   currentStep: 0,
   currentCompany: emptyCompanyDraft,
-  companies: [],
+};
+
+const requiredCompanyFields: OnboardingCompanyField[] = [
+  "companyName",
+  "addressLine",
+  "phone",
+  "email",
+  "website",
+];
+
+const requiredCompanyFieldLabels: Record<OnboardingCompanyField, string> = {
+  companyName: "denomination",
+  addressLine: "adresse",
+  phone: "telephone",
+  email: "email",
+  website: "site web",
+  legalName: "",
+  siren: "",
+  siret: "",
+  postalCode: "",
+  city: "",
+  activity: "",
+};
+
+const companyFieldLabels: Partial<Record<OnboardingCompanyField, string>> = {
+  siren: "SIREN",
+  siret: "SIRET",
+  companyName: "Denomination",
+  legalName: "Raison sociale",
+  addressLine: "Adresse",
+  postalCode: "Code postal",
+  city: "Ville",
+  phone: "Telephone",
+  email: "Email",
+  activity: "Activite",
+  website: "Site web",
 };
 
 function isValidStepIndex(value: number) {
@@ -83,10 +132,12 @@ function readString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
-function sanitizeCompany(value: unknown): OnboardingDraftCompany {
+function sanitizeCompany(value: unknown): OnboardingCompany {
   if (!isObject(value)) {
     return emptyCompanyDraft;
   }
+
+  const id = readString(value.id);
 
   return {
     siren: readString(value.siren),
@@ -97,8 +148,10 @@ function sanitizeCompany(value: unknown): OnboardingDraftCompany {
     postalCode: readString(value.postalCode),
     city: readString(value.city),
     phone: readString(value.phone),
+    email: readString(value.email),
     activity: readString(value.activity),
     website: readString(value.website),
+    ...(id ? { id } : {}),
   };
 }
 
@@ -107,31 +160,49 @@ function sanitizeDraft(value: unknown): OnboardingDraft {
     return initialDraft;
   }
 
-  const currentStep =
-    typeof value.currentStep === "number" && isValidStepIndex(value.currentStep)
-      ? value.currentStep
-      : 0;
-  const companies = Array.isArray(value.companies)
-    ? value.companies.map((company) => sanitizeCompany(company))
-    : [];
-
   return {
-    currentStep,
+    currentStep:
+      typeof value.currentStep === "number" && isValidStepIndex(value.currentStep)
+        ? value.currentStep
+        : 0,
     currentCompany: sanitizeCompany(value.currentCompany),
-    companies,
   };
 }
 
-type OnboardingWizardProps = {
-  userName: string | null;
-};
+function hasCompanyDraftValues(company: OnboardingCompany) {
+  return (
+    company.siren !== "" ||
+    company.siret !== "" ||
+    company.companyName !== "" ||
+    company.legalName !== "" ||
+    company.addressLine !== "" ||
+    company.postalCode !== "" ||
+    company.city !== "" ||
+    company.phone !== "" ||
+    company.email !== "" ||
+    company.activity !== "" ||
+    company.website !== ""
+  );
+}
 
-export function OnboardingWizard({ userName }: OnboardingWizardProps) {
+export function OnboardingWizard({
+  initialCompanies,
+  isOnboardingCompleted,
+  userName,
+}: OnboardingWizardProps) {
   const [draft, setDraft] = useState(initialDraft);
+  const [savedCompanies, setSavedCompanies] = useState(initialCompanies);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
   const [lookupMessage, setLookupMessage] = useState("");
   const [lookupError, setLookupError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [isLookupPending, setIsLookupPending] = useState(false);
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
+  const [isDeletingCompanyId, setIsDeletingCompanyId] = useState("");
+  const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<OnboardingCompanyField, string>>
+  >({});
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -161,34 +232,85 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
     window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(draft));
   }, [draft, hasLoadedDraft]);
 
+  useEffect(() => {
+    setSavedCompanies(initialCompanies);
+  }, [initialCompanies]);
+
   const currentStep = steps[draft.currentStep] ?? steps[0];
   const canGoBack = draft.currentStep > 0;
-  const hasValidSiren = isValidSiren(draft.currentCompany.siren);
-  const hasValidSiret = isValidSiret(draft.currentCompany.siret);
-  const identifiersComplete = hasValidSiren || hasValidSiret;
-  const companyInfoComplete =
-    draft.currentCompany.companyName.trim() !== "" ||
-    draft.currentCompany.legalName.trim() !== "";
-  const canGoNext =
-    (draft.currentStep === 0 && identifiersComplete) ||
-    (draft.currentStep === 1 && companyInfoComplete);
+  const isEditingExistingCompany = typeof draft.currentCompany.id === "string";
+  const hasCurrentDraft = hasCompanyDraftValues(draft.currentCompany);
+  const visibleFieldErrors = Object.entries(fieldErrors).filter(
+    ([, message]) => typeof message === "string" && message !== "",
+  );
   const sirenError =
-    draft.currentCompany.siren !== "" && !hasValidSiren
+    draft.currentCompany.siren !== "" && !isValidSiren(draft.currentCompany.siren)
       ? "Le SIREN doit contenir 9 chiffres valides."
       : "";
   const siretError =
-    draft.currentCompany.siret !== "" && !hasValidSiret
+    draft.currentCompany.siret !== "" && !isValidSiret(draft.currentCompany.siret)
       ? "Le SIRET doit contenir 14 chiffres valides."
       : "";
+  const canRunLookup =
+    (draft.currentCompany.siren !== "" && isValidSiren(draft.currentCompany.siren)) ||
+    (draft.currentCompany.siret !== "" && isValidSiret(draft.currentCompany.siret));
 
-  function updateCompanyField(
-    field: keyof OnboardingDraftCompany,
-    value: string,
-  ) {
+  function setSingleFieldError(field: OnboardingCompanyField, message: string) {
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      [field]: message,
+    }));
+  }
+
+  function resetMessages() {
+    setLookupMessage("");
+    setLookupError("");
+    setSaveError("");
+  }
+
+  function resetCurrentCompany(nextStep = 0) {
+    setFieldErrors({});
+    resetMessages();
+    setDraft({
+      currentStep: nextStep,
+      currentCompany: emptyCompanyDraft,
+    });
+  }
+
+  function buildClientFieldErrors() {
+    const parsedDraft = companyFormSchema.safeParse(
+      draft.currentCompany satisfies CompanyFormInput,
+    );
+
+    if (parsedDraft.success) {
+      return null;
+    }
+
+    const nextFieldErrors: Partial<Record<OnboardingCompanyField, string>> = {};
+
+    for (const issue of parsedDraft.error.issues) {
+      const field = issue.path[0];
+
+      if (typeof field === "string" && !(field in nextFieldErrors)) {
+        nextFieldErrors[field as OnboardingCompanyField] = issue.message;
+      }
+    }
+
+    return nextFieldErrors;
+  }
+
+  function updateCompanyField(field: OnboardingCompanyField, value: string) {
     if (field === "siren" || field === "siret") {
       setLookupMessage("");
       setLookupError("");
     }
+
+    setFieldErrors((currentErrors) =>
+      Object.fromEntries(
+        Object.entries(currentErrors).filter(([currentField]) => currentField !== field),
+      ) as Partial<Record<OnboardingCompanyField, string>>,
+    );
+    setSaveError("");
 
     setDraft((currentDraft) => ({
       ...currentDraft,
@@ -197,6 +319,10 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
         [field]: value,
       },
     }));
+  }
+
+  function validateFieldOnBlur(field: OnboardingCompanyField) {
+    setSingleFieldError(field, validateCompanyField(field, draft.currentCompany[field]));
   }
 
   function goToStep(stepIndex: number) {
@@ -215,21 +341,11 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
   }
 
   function goToNextStep() {
-    if (!canGoNext) {
+    if (draft.currentStep >= steps.length - 1) {
       return;
     }
 
     goToStep(draft.currentStep + 1);
-  }
-
-  function addAnotherCompany() {
-    setLookupMessage("");
-    setLookupError("");
-    setDraft((currentDraft) => ({
-      currentStep: 0,
-      currentCompany: emptyCompanyDraft,
-      companies: [...currentDraft.companies, currentDraft.currentCompany],
-    }));
   }
 
   function clearDraftStorage() {
@@ -254,6 +370,179 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
     }));
   }
 
+  async function completeOnboarding(clearDraft = false) {
+    setIsCompletingOnboarding(true);
+    setSaveError("");
+
+    try {
+      const response = await fetch("/api/onboarding/complete", {
+        method: "POST",
+      });
+      const payload = (await response.json()) as {
+        message?: string;
+        redirectTo?: string;
+      };
+
+      if (!response.ok) {
+        setSaveError(payload.message ?? "Impossible de finaliser l'onboarding.");
+        return;
+      }
+
+      if (clearDraft) {
+        clearDraftStorage();
+      }
+
+      window.location.assign(payload.redirectTo ?? "/dashboard");
+    } catch {
+      setSaveError("Impossible de finaliser l'onboarding.");
+    } finally {
+      setIsCompletingOnboarding(false);
+    }
+  }
+
+  async function saveCurrentCompany(completeAfterSave: boolean) {
+    setFieldErrors({});
+    setSaveError("");
+    setIsSavingCompany(true);
+
+    try {
+      const clientFieldErrors = buildClientFieldErrors();
+
+      if (clientFieldErrors) {
+        setFieldErrors(clientFieldErrors);
+        setSaveError("Completer les champs requis avant de continuer.");
+        goToStep(1);
+        return;
+      }
+
+      const response = await fetch("/api/onboarding/company", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyId: draft.currentCompany.id,
+          company: draft.currentCompany satisfies CompanyFormInput,
+        }),
+      });
+      const payload = (await response.json()) as {
+        company?: OnboardingCompany;
+        fieldErrors?: Partial<Record<OnboardingCompanyField, string>>;
+        message?: string;
+      };
+
+      if (response.status === 422 && payload.fieldErrors) {
+        setFieldErrors(payload.fieldErrors);
+        setSaveError(payload.message ?? "Veuillez corriger les champs requis.");
+        goToStep(1);
+        return;
+      }
+
+      if (!response.ok || !payload.company) {
+        setSaveError(
+          payload.message ??
+            "Impossible d'enregistrer l'entreprise pour le moment.",
+        );
+        return;
+      }
+
+      const savedCompany = payload.company;
+
+      setSavedCompanies((currentCompanies) => {
+        const existingIndex = currentCompanies.findIndex(
+          (company) => company.id === savedCompany.id,
+        );
+
+        if (existingIndex === -1) {
+          return [...currentCompanies, savedCompany];
+        }
+
+        return currentCompanies.map((company) =>
+          company.id === savedCompany.id ? savedCompany : company,
+        );
+      });
+      resetCurrentCompany(2);
+
+      if (completeAfterSave) {
+        clearDraftStorage();
+        await completeOnboarding(false);
+      }
+    } catch {
+      setSaveError("Impossible d'enregistrer l'entreprise pour le moment.");
+    } finally {
+      setIsSavingCompany(false);
+    }
+  }
+
+  async function deleteCompany(companyId: string) {
+    setIsDeletingCompanyId(companyId);
+    setSaveError("");
+
+    try {
+      const response = await fetch(`/api/onboarding/company/${companyId}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json()) as {
+        message?: string;
+      };
+
+      if (!response.ok) {
+        setSaveError(
+          payload.message ?? "Impossible de supprimer l'entreprise pour le moment.",
+        );
+        return;
+      }
+
+      setSavedCompanies((currentCompanies) =>
+        currentCompanies.filter((company) => company.id !== companyId),
+      );
+
+      if (draft.currentCompany.id === companyId) {
+        resetCurrentCompany(2);
+      }
+    } catch {
+      setSaveError("Impossible de supprimer l'entreprise pour le moment.");
+    } finally {
+      setIsDeletingCompanyId("");
+    }
+  }
+
+  function editCompany(company: OnboardingCompany) {
+    setFieldErrors({});
+    resetMessages();
+    setDraft({
+      currentStep: 1,
+      currentCompany: company,
+    });
+  }
+
+  function startAnotherCompany() {
+    resetCurrentCompany(0);
+  }
+
+  async function handleFinish() {
+    if (hasCurrentDraft) {
+      await saveCurrentCompany(true);
+      return;
+    }
+
+    await completeOnboarding(true);
+  }
+
+  async function handleSkip() {
+    clearDraftStorage();
+    await completeOnboarding(false);
+  }
+
+  async function handlePrimarySummaryAction() {
+    if (hasCurrentDraft) {
+      await saveCurrentCompany(false);
+      return;
+    }
+
+    startAnotherCompany();
+  }
+
   async function runCompanyLookup() {
     const siren = normalizeIdentifier(draft.currentCompany.siren);
     const siret = normalizeIdentifier(draft.currentCompany.siret);
@@ -269,8 +558,10 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
     setLookupMessage("");
     setLookupError("");
 
-    if (!isValidSiren(siren) && !isValidSiret(siret)) {
-      setLookupError("Saisissez un SIREN ou un SIRET valide avant la recherche.");
+    if (!canRunLookup) {
+      setLookupError(
+        "Renseignez un SIREN ou un SIRET valide pour lancer la recherche automatique.",
+      );
       return;
     }
 
@@ -319,31 +610,29 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
       <section className="w-full overflow-hidden rounded-[var(--radius-xl)] border border-border/70 bg-card/90 shadow-[var(--shadow-md)] backdrop-blur">
         <div className="border-b border-border/70 bg-linear-to-r from-primary/8 via-background to-background px-8 py-8 sm:px-10">
           <p className="text-primary text-xs font-semibold tracking-[0.22em] uppercase">
-            Onboarding
+            {isOnboardingCompleted ? "Company setup" : "Onboarding"}
           </p>
           <div className="mt-4 flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
               <h1 className="text-4xl font-semibold tracking-[-0.05em]">
-                Configure your first companies
+                {isOnboardingCompleted
+                  ? "Manage your companies"
+                  : "Configure your first companies"}
                 {userName ? `, ${userName}` : ""}.
               </h1>
               <p className="text-muted-foreground max-w-2xl text-base leading-7">
-                The MVP only audits public listings. Start by defining the
-                internal company data that will be compared against online
-                platforms.
+                SIREN and SIRET are optional helpers. You can skip them, create
+                one or more companies, and return later if needed.
               </p>
             </div>
 
             <div className="rounded-[var(--radius-lg)] border border-border/70 bg-background/80 px-4 py-3">
               <p className="text-xs font-semibold tracking-[0.18em] uppercase">
-                Brouillon
+                Entreprises liees
               </p>
-              <p className="mt-2 text-2xl font-semibold">
-                {draft.companies.length}
-              </p>
+              <p className="mt-2 text-2xl font-semibold">{savedCompanies.length}</p>
               <p className="text-muted-foreground text-sm">
-                entreprise{draft.companies.length > 1 ? "s" : ""} ajoutee
-                {draft.companies.length > 1 ? "s" : ""}
+                compte{savedCompanies.length > 1 ? "s" : ""} source de verite
               </p>
             </div>
           </div>
@@ -403,12 +692,26 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
 
             {draft.currentStep === 0 ? (
               <div className="space-y-4">
+                <div className="rounded-[var(--radius-lg)] border border-border/70 bg-background/70 p-4">
+                  <p className="text-sm font-semibold">Aide facultative</p>
+                  <p className="text-muted-foreground mt-2 text-sm leading-6">
+                    Cette etape n&apos;est pas obligatoire. Vous pouvez passer a
+                    la saisie manuelle si vous n&apos;avez pas encore les
+                    identifiants.
+                  </p>
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormField
                     label="SIREN"
                     name="siren"
                     value={draft.currentCompany.siren}
                     error={sirenError}
+                    onBlur={() => {
+                      if (draft.currentCompany.siren !== "") {
+                        validateFieldOnBlur("siren");
+                      }
+                    }}
                     onChange={(event) => {
                       updateCompanyField(
                         "siren",
@@ -421,6 +724,11 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
                     name="siret"
                     value={draft.currentCompany.siret}
                     error={siretError}
+                    onBlur={() => {
+                      if (draft.currentCompany.siret !== "") {
+                        validateFieldOnBlur("siret");
+                      }
+                    }}
                     onChange={(event) => {
                       updateCompanyField(
                         "siret",
@@ -436,8 +744,8 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
                       Recherche automatique via l&apos;API Sirene
                     </p>
                     <p className="text-muted-foreground text-sm leading-6">
-                      Si un identifiant valide est trouve, BusinessControl
-                      pre-remplit la denomination et les informations de base.
+                      Lancez la recherche uniquement si vous avez un identifiant
+                      valide. Sinon, passez directement a l&apos;etape suivante.
                     </p>
                   </div>
                   <Button
@@ -467,180 +775,328 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
             ) : null}
 
             {draft.currentStep === 1 ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  label="Nom commercial"
-                  name="companyName"
-                  value={draft.currentCompany.companyName}
-                  onChange={(event) => {
-                    updateCompanyField("companyName", event.currentTarget.value);
-                  }}
-                />
-                <FormField
-                  label="Raison sociale"
-                  name="legalName"
-                  value={draft.currentCompany.legalName}
-                  onChange={(event) => {
-                    updateCompanyField("legalName", event.currentTarget.value);
-                  }}
-                />
-                <div className="md:col-span-2">
-                  <FormField
-                    label="Adresse"
-                    name="addressLine"
-                    value={draft.currentCompany.addressLine}
-                    onChange={(event) => {
-                      updateCompanyField("addressLine", event.currentTarget.value);
-                    }}
-                  />
+              <div className="space-y-5">
+                <div className="rounded-[var(--radius-lg)] border border-border/70 bg-background/70 p-4">
+                  <p className="text-sm font-semibold">
+                    {isEditingExistingCompany
+                      ? "Edition d'une entreprise existante"
+                      : "Source de verite de l'entreprise"}
+                  </p>
+                  <p className="text-muted-foreground mt-2 text-sm leading-6">
+                    Les champs marques d&apos;une etoile sont requis. Les
+                    donnees peuvent etre corrigees a tout moment avant la
+                    validation finale.
+                  </p>
                 </div>
-                <FormField
-                  label="Code postal"
-                  name="postalCode"
-                  value={draft.currentCompany.postalCode}
-                  onChange={(event) => {
-                    updateCompanyField("postalCode", event.currentTarget.value);
-                  }}
-                />
-                <FormField
-                  label="Ville"
-                  name="city"
-                  value={draft.currentCompany.city}
-                  onChange={(event) => {
-                    updateCompanyField("city", event.currentTarget.value);
-                  }}
-                />
-                <FormField
-                  label="Telephone"
-                  name="phone"
-                  value={draft.currentCompany.phone}
-                  onChange={(event) => {
-                    updateCompanyField("phone", event.currentTarget.value);
-                  }}
-                />
-                <FormField
-                  label="Activite"
-                  name="activity"
-                  value={draft.currentCompany.activity}
-                  onChange={(event) => {
-                    updateCompanyField("activity", event.currentTarget.value);
-                  }}
-                />
-                <div className="md:col-span-2">
+
+                {visibleFieldErrors.length > 0 || saveError ? (
+                  <div className="rounded-[var(--radius-lg)] border border-destructive/20 bg-destructive/8 p-4">
+                    <p className="text-sm font-semibold text-foreground">
+                      Verification requise avant enregistrement
+                    </p>
+                    {saveError ? (
+                      <p className="mt-2 text-sm text-foreground">{saveError}</p>
+                    ) : null}
+                    {visibleFieldErrors.length > 0 ? (
+                      <ul className="mt-3 space-y-2 text-sm text-foreground">
+                        {visibleFieldErrors.map(([field, message]) => (
+                          <li key={field}>
+                            <span className="font-medium">
+                              {companyFieldLabels[field as OnboardingCompanyField] ??
+                                field}
+                            </span>
+                            : {message}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="grid gap-4 md:grid-cols-2">
                   <FormField
-                    label="Site web"
-                    name="website"
-                    type="url"
-                    value={draft.currentCompany.website}
+                    label="Denomination *"
+                    name="companyName"
+                    value={draft.currentCompany.companyName}
+                    error={fieldErrors.companyName}
+                    onBlur={() => {
+                      validateFieldOnBlur("companyName");
+                    }}
                     onChange={(event) => {
-                      updateCompanyField("website", event.currentTarget.value);
+                      updateCompanyField("companyName", event.currentTarget.value);
                     }}
                   />
+                  <FormField
+                    label="Raison sociale"
+                    name="legalName"
+                    value={draft.currentCompany.legalName}
+                    error={fieldErrors.legalName}
+                    onBlur={() => {
+                      validateFieldOnBlur("legalName");
+                    }}
+                    onChange={(event) => {
+                      updateCompanyField("legalName", event.currentTarget.value);
+                    }}
+                  />
+                  <div className="md:col-span-2">
+                    <FormField
+                      label="Adresse *"
+                      name="addressLine"
+                      value={draft.currentCompany.addressLine}
+                      error={fieldErrors.addressLine}
+                      onBlur={() => {
+                        validateFieldOnBlur("addressLine");
+                      }}
+                      onChange={(event) => {
+                        updateCompanyField("addressLine", event.currentTarget.value);
+                      }}
+                    />
+                  </div>
+                  <FormField
+                    label="Code postal"
+                    name="postalCode"
+                    value={draft.currentCompany.postalCode}
+                    error={fieldErrors.postalCode}
+                    onBlur={() => {
+                      validateFieldOnBlur("postalCode");
+                    }}
+                    onChange={(event) => {
+                      updateCompanyField("postalCode", event.currentTarget.value);
+                    }}
+                  />
+                  <FormField
+                    label="Ville"
+                    name="city"
+                    value={draft.currentCompany.city}
+                    error={fieldErrors.city}
+                    onBlur={() => {
+                      validateFieldOnBlur("city");
+                    }}
+                    onChange={(event) => {
+                      updateCompanyField("city", event.currentTarget.value);
+                    }}
+                  />
+                  <FormField
+                    label="Telephone *"
+                    name="phone"
+                    value={draft.currentCompany.phone}
+                    error={fieldErrors.phone}
+                    onBlur={() => {
+                      validateFieldOnBlur("phone");
+                    }}
+                    onChange={(event) => {
+                      updateCompanyField("phone", event.currentTarget.value);
+                    }}
+                  />
+                  <FormField
+                    label="Email *"
+                    name="email"
+                    type="email"
+                    value={draft.currentCompany.email}
+                    error={fieldErrors.email}
+                    onBlur={() => {
+                      validateFieldOnBlur("email");
+                    }}
+                    onChange={(event) => {
+                      updateCompanyField("email", event.currentTarget.value);
+                    }}
+                  />
+                  <FormField
+                    label="Activite"
+                    name="activity"
+                    value={draft.currentCompany.activity}
+                    error={fieldErrors.activity}
+                    onBlur={() => {
+                      validateFieldOnBlur("activity");
+                    }}
+                    onChange={(event) => {
+                      updateCompanyField("activity", event.currentTarget.value);
+                    }}
+                  />
+                  <div className="md:col-span-2">
+                    <FormField
+                      label="Site web *"
+                      name="website"
+                      type="url"
+                      value={draft.currentCompany.website}
+                      error={fieldErrors.website}
+                      onBlur={() => {
+                        validateFieldOnBlur("website");
+                      }}
+                      onChange={(event) => {
+                        updateCompanyField("website", event.currentTarget.value);
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-2 rounded-[var(--radius-lg)] border border-border/70 bg-background/70 p-4 text-sm">
+                  <p className="font-semibold">Champs requis</p>
+                  <p className="text-muted-foreground leading-6">
+                    {requiredCompanyFields
+                      .map((field) => requiredCompanyFieldLabels[field])
+                      .join(", ")}
+                  </p>
                 </div>
               </div>
             ) : null}
 
             {draft.currentStep === 2 ? (
               <div className="space-y-6">
-                <div className="rounded-[var(--radius-lg)] border border-border/70 bg-background/70 p-5">
-                  <p className="text-sm font-semibold">Entreprise en cours</p>
-                  <dl className="text-muted-foreground mt-4 grid gap-3 text-sm leading-6 md:grid-cols-2">
-                    <div>
-                      <dt className="font-medium text-foreground">SIREN</dt>
-                      <dd>{draft.currentCompany.siren || "Non renseigne"}</dd>
+                {hasCurrentDraft ? (
+                  <div className="rounded-[var(--radius-lg)] border border-primary/20 bg-primary/6 p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold">Entreprise en cours</p>
+                        <p className="text-muted-foreground mt-2 text-sm leading-6">
+                          Cette entreprise n&apos;est pas encore enregistree.
+                          Vous pouvez revenir pour corriger ou l&apos;enregistrer
+                          directement depuis cet ecran.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          goToStep(1);
+                        }}
+                      >
+                        Modifier
+                      </Button>
                     </div>
-                    <div>
-                      <dt className="font-medium text-foreground">SIRET</dt>
-                      <dd>{draft.currentCompany.siret || "Non renseigne"}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-medium text-foreground">
-                        Nom commercial
-                      </dt>
-                      <dd>
-                        {draft.currentCompany.companyName || "Non renseigne"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="font-medium text-foreground">
-                        Raison sociale
-                      </dt>
-                      <dd>
-                        {draft.currentCompany.legalName || "Non renseigne"}
-                      </dd>
-                    </div>
-                    <div className="md:col-span-2">
-                      <dt className="font-medium text-foreground">Adresse</dt>
-                      <dd>{draft.currentCompany.addressLine || "Non renseigne"}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-medium text-foreground">
-                        Code postal
-                      </dt>
-                      <dd>{draft.currentCompany.postalCode || "Non renseigne"}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-medium text-foreground">Ville</dt>
-                      <dd>{draft.currentCompany.city || "Non renseigne"}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-medium text-foreground">Telephone</dt>
-                      <dd>{draft.currentCompany.phone || "Non renseigne"}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-medium text-foreground">Activite</dt>
-                      <dd>{draft.currentCompany.activity || "Non renseigne"}</dd>
-                    </div>
-                    <div className="md:col-span-2">
-                      <dt className="font-medium text-foreground">Site web</dt>
-                      <dd>{draft.currentCompany.website || "Non renseigne"}</dd>
-                    </div>
-                  </dl>
-                </div>
+                    <dl className="text-muted-foreground mt-4 grid gap-3 text-sm leading-6 md:grid-cols-2">
+                      <div>
+                        <dt className="font-medium text-foreground">Denomination</dt>
+                        <dd>{draft.currentCompany.companyName || "Non renseigne"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-foreground">Email</dt>
+                        <dd>{draft.currentCompany.email || "Non renseigne"}</dd>
+                      </div>
+                      <div className="md:col-span-2">
+                        <dt className="font-medium text-foreground">Adresse</dt>
+                        <dd>{draft.currentCompany.addressLine || "Non renseigne"}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ) : null}
 
-                {draft.companies.length > 0 ? (
-                  <div className="rounded-[var(--radius-lg)] border border-border/70 bg-background/70 p-5">
-                    <p className="text-sm font-semibold">
-                      Entreprises deja ajoutees
-                    </p>
-                    <ul className="mt-4 space-y-3 text-sm">
-                      {draft.companies.map((company, index) => (
+                <div className="rounded-[var(--radius-lg)] border border-border/70 bg-background/70 p-5">
+                  <p className="text-sm font-semibold">Entreprises ajoutees</p>
+                  {savedCompanies.length > 0 ? (
+                    <ul className="mt-4 space-y-3">
+                      {savedCompanies.map((company) => (
                         <li
-                          key={`${company.siren}-${company.siret}-${String(index)}`}
-                          className="flex items-center justify-between rounded-[var(--radius-md)] border border-border/60 px-3 py-3"
+                          key={company.id ?? company.companyName}
+                          className="rounded-[var(--radius-md)] border border-border/60 px-4 py-4"
                         >
-                          <div>
-                            <p className="font-medium">
-                              {company.companyName || company.legalName || "Entreprise"}
-                            </p>
-                            <p className="text-muted-foreground">
-                              SIREN {company.siren || "-"} · SIRET{" "}
-                              {company.siret || "-"}
-                            </p>
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="space-y-1">
+                              <p className="font-medium text-foreground">
+                                {company.companyName || company.legalName || "Entreprise"}
+                              </p>
+                              <p className="text-muted-foreground text-sm">
+                                {company.addressLine || "Adresse manquante"}
+                              </p>
+                              <p className="text-muted-foreground text-sm">
+                                {company.email || "Email manquant"} ·{" "}
+                                {company.website || "Site web manquant"}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  editCompany(company);
+                                }}
+                              >
+                                Modifier
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                disabled={isDeletingCompanyId === company.id}
+                                onClick={() => {
+                                  if (company.id) {
+                                    void deleteCompany(company.id);
+                                  }
+                                }}
+                              >
+                                {isDeletingCompanyId === company.id
+                                  ? "Suppression..."
+                                  : "Supprimer"}
+                              </Button>
+                            </div>
                           </div>
                         </li>
                       ))}
                     </ul>
-                  </div>
+                  ) : (
+                    <div className="mt-4 rounded-[var(--radius-md)] border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                      Aucune entreprise enregistree pour l&apos;instant.
+                    </div>
+                  )}
+                </div>
+
+                {saveError ? (
+                  <p className="rounded-[var(--radius-md)] border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-foreground">
+                    {saveError}
+                  </p>
                 ) : null}
 
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <Button type="button" size="lg" onClick={addAnotherCompany}>
-                    Ajouter une autre entreprise
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                  <Button
+                    type="button"
+                    size="lg"
+                    disabled={isSavingCompany || isCompletingOnboarding}
+                    onClick={() => {
+                      void handlePrimarySummaryAction();
+                    }}
+                  >
+                    {hasCurrentDraft
+                      ? isEditingExistingCompany
+                        ? "Enregistrer les modifications"
+                        : "Enregistrer et ajouter une autre entreprise"
+                      : "Ajouter une autre entreprise"}
                   </Button>
-                  <form action={completeOnboardingAction} onSubmit={clearDraftStorage}>
-                    <Button type="submit" size="lg" variant="outline">
-                      Terminer l&apos;onboarding
+                  <Button
+                    type="button"
+                    size="lg"
+                    variant="outline"
+                    disabled={isSavingCompany || isCompletingOnboarding}
+                    onClick={() => {
+                      void handleFinish();
+                    }}
+                  >
+                    {isSavingCompany || isCompletingOnboarding
+                      ? "Traitement..."
+                      : hasCurrentDraft
+                        ? "Enregistrer et terminer"
+                        : "Terminer"}
+                  </Button>
+                  {!isOnboardingCompleted ? (
+                    <Button
+                      type="button"
+                      size="lg"
+                      variant="ghost"
+                      disabled={isCompletingOnboarding}
+                      onClick={() => {
+                        void handleSkip();
+                      }}
+                    >
+                      Passer pour l&apos;instant
                     </Button>
-                  </form>
+                  ) : null}
                 </div>
               </div>
             ) : null}
 
             <div className="flex flex-col gap-3 border-t border-border/70 pt-6 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-muted-foreground text-sm">
-                Les donnees du flow sont conservees temporairement dans ce
-                navigateur.
+                Le brouillon local conserve uniquement l&apos;entreprise en cours
+                de saisie. Les entreprises enregistrees sont liees a votre
+                compte.
               </p>
               {draft.currentStep < 2 ? (
                 <div className="flex gap-3">
@@ -653,12 +1109,7 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
                   >
                     Precedent
                   </Button>
-                  <Button
-                    type="button"
-                    size="lg"
-                    disabled={!canGoNext}
-                    onClick={goToNextStep}
-                  >
+                  <Button type="button" size="lg" onClick={goToNextStep}>
                     Suivant
                   </Button>
                 </div>
@@ -669,7 +1120,7 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
                   size="lg"
                   onClick={goToPreviousStep}
                 >
-                  Revenir aux informations
+                  Revenir au formulaire
                 </Button>
               )}
             </div>

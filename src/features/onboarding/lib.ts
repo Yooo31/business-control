@@ -20,19 +20,34 @@ async function getAuthenticatedUser() {
       name: true,
       email: true,
       onboardingCompleted: true,
+      companies: {
+        orderBy: {
+          createdAt: "asc",
+        },
+        select: {
+          id: true,
+          name: true,
+          legalName: true,
+          siren: true,
+          siret: true,
+          addressLine: true,
+          postalCode: true,
+          city: true,
+          phone: true,
+          email: true,
+          activity: true,
+          website: true,
+        },
+      },
     },
   });
 }
 
-export async function requirePendingOnboardingUser() {
+export async function requireOnboardingUser() {
   const user = await getAuthenticatedUser();
 
   if (!user) {
     redirect("/login?callbackUrl=%2Fonboarding" as Route);
-  }
-
-  if (user.onboardingCompleted) {
-    redirect("/dashboard" as Route);
   }
 
   return user;

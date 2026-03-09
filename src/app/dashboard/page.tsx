@@ -4,6 +4,7 @@ import { requireOnboardedUser } from "@/features/onboarding/lib";
 
 export default async function DashboardPage() {
   const user = await requireOnboardedUser();
+  const hasCompanies = user.companies.length > 0;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
@@ -26,6 +27,52 @@ export default async function DashboardPage() {
           </div>
         </section>
 
+        {hasCompanies ? (
+          <section className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-[var(--radius-lg)] border border-border/70 bg-card/90 p-5">
+              <p className="text-sm font-semibold">Entreprises suivies</p>
+              <ul className="text-muted-foreground mt-3 space-y-3 text-sm leading-6">
+                {user.companies.map((company) => (
+                  <li
+                    key={company.id}
+                    className="rounded-[var(--radius-md)] border border-border/60 px-4 py-3"
+                  >
+                    <p className="font-medium text-foreground">{company.name}</p>
+                    <p>
+                      {company.city
+                        ? `${company.city}${company.website ? " · " : ""}`
+                        : ""}
+                      {company.website}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <ClientSessionPanel />
+          </section>
+        ) : (
+          <section className="rounded-[var(--radius-xl)] border border-dashed border-border bg-card/80 p-8 text-center shadow-[var(--shadow-sm)]">
+            <p className="text-primary text-xs font-semibold tracking-[0.22em] uppercase">
+              Empty state
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
+              No company added yet
+            </h2>
+            <p className="text-muted-foreground mx-auto mt-3 max-w-2xl text-base leading-7">
+              You completed onboarding without creating a source-of-truth
+              company. Add one now to start structuring your listing audits.
+            </p>
+            <div className="mt-6 flex justify-center">
+              <a
+                href="/onboarding"
+                className="bg-primary text-primary-foreground inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] px-4 text-sm font-semibold"
+              >
+                Ajouter une entreprise
+              </a>
+            </div>
+          </section>
+        )}
+
         <section className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-[var(--radius-lg)] border border-border/70 bg-card/90 p-5">
             <p className="text-sm font-semibold">Server session</p>
@@ -41,6 +88,10 @@ export default async function DashboardPage() {
               <div>
                 <dt className="font-medium text-foreground">Name</dt>
                 <dd>{user.name ?? "Not set"}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">Companies</dt>
+                <dd>{user.companies.length}</dd>
               </div>
             </dl>
           </div>
