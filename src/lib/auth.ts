@@ -3,6 +3,10 @@ import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
+import {
+  normalizeEmail,
+  validateLoginInput,
+} from "@/features/auth/validation";
 import { verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 
@@ -15,11 +19,17 @@ function parseCredentials(
   credentials: Record<string, unknown> | undefined,
 ): CredentialsInput | null {
   const email =
-    typeof credentials?.email === "string" ? credentials.email.trim() : "";
+    typeof credentials?.email === "string"
+      ? normalizeEmail(credentials.email)
+      : "";
   const password =
     typeof credentials?.password === "string" ? credentials.password : "";
+  const validation = validateLoginInput({
+    email,
+    password,
+  });
 
-  if (!email || !password) {
+  if (!validation.isValid) {
     return null;
   }
 
@@ -111,4 +121,8 @@ export const authOptions: NextAuthOptions = {
 
 export function getServerAuthSession() {
   return getServerSession(authOptions);
+}
+
+export function auth() {
+  return getServerAuthSession();
 }
