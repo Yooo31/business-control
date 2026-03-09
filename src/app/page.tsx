@@ -1,10 +1,8 @@
-import type { Route } from "next";
 import { redirect } from "next/navigation";
 
-import { auth } from "@/lib/auth";
+import { requireOnboardedUser } from "@/features/onboarding/lib";
 
 export default async function HomePage() {
-  const session = await auth();
-
-  redirect((session?.user ? "/dashboard" : "/login") as Route);
+  await requireOnboardedUser();
+  redirect("/dashboard");
 }

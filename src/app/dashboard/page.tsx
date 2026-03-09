@@ -1,16 +1,9 @@
-import type { Route } from "next";
-import { redirect } from "next/navigation";
-
 import { ClientSessionPanel } from "@/features/auth/components/client-session-panel";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
-import { auth } from "@/lib/auth";
+import { requireOnboardedUser } from "@/features/onboarding/lib";
 
 export default async function DashboardPage() {
-  const session = await auth();
-
-  if (!session?.user) {
-    redirect("/login" as Route);
-  }
+  const user = await requireOnboardedUser();
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
@@ -22,11 +15,11 @@ export default async function DashboardPage() {
                 Private dashboard
               </p>
               <h1 className="text-4xl font-semibold tracking-[-0.05em]">
-                Welcome back{session.user.name ? `, ${session.user.name}` : ""}.
+                Welcome back{user.name ? `, ${user.name}` : ""}.
               </h1>
               <p className="text-muted-foreground max-w-2xl text-base leading-7">
-                This page is protected server-side and only renders when a valid
-                NextAuth session exists.
+                This page is protected server-side and only renders after a
+                valid session exists and onboarding is complete.
               </p>
             </div>
             <SignOutButton />
@@ -39,15 +32,15 @@ export default async function DashboardPage() {
             <dl className="text-muted-foreground mt-3 space-y-2 text-sm leading-6">
               <div>
                 <dt className="font-medium text-foreground">User ID</dt>
-                <dd>{session.user.id}</dd>
+                <dd>{user.id}</dd>
               </div>
               <div>
                 <dt className="font-medium text-foreground">Email</dt>
-                <dd>{session.user.email}</dd>
+                <dd>{user.email}</dd>
               </div>
               <div>
                 <dt className="font-medium text-foreground">Name</dt>
-                <dd>{session.user.name ?? "Not set"}</dd>
+                <dd>{user.name ?? "Not set"}</dd>
               </div>
             </dl>
           </div>
