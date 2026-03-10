@@ -98,14 +98,13 @@ describe("scanner worker", () => {
     const result = await processQueuedScanJobs({
       logger: { error: vi.fn(), info: vi.fn() },
     });
-    const updateCalls = prismaMock.scanJob.update.mock.calls as Array<
-      [{ data: { errorMessage?: string; status?: string } }]
-    >;
-    const failedUpdate = updateCalls.at(-1);
+    const failedUpdate = prismaMock.scanJob.update.mock.lastCall?.[0] as
+      | { data: { errorMessage?: string; status?: string } }
+      | undefined;
 
     expect(result).toEqual({ processedJobs: 1 });
-    expect(failedUpdate?.[0].data.errorMessage).toBe("scanner failed");
-    expect(failedUpdate?.[0].data.status).toBe("FAILED");
+    expect(failedUpdate?.data.errorMessage).toBe("scanner failed");
+    expect(failedUpdate?.data.status).toBe("FAILED");
   });
 
   it("keeps draining after a failed batch until no queued jobs remain", async () => {
