@@ -8,39 +8,129 @@ datasource db {
 }
 
 model User {
-  id                  String    @id @default(cuid())
+  id                  String      @id @default(cuid())
   name                String?
-  email               String?   @unique
-  passwordHash        String?   @db.Text
+  email               String?     @unique
+  passwordHash        String?     @db.Text
   emailVerified       DateTime?
   image               String?
-  onboardingCompleted Boolean   @default(false)
+  onboardingCompleted Boolean     @default(false)
   companies           Company[]
+  scanBatches         ScanBatch[]
   accounts            Account[]
   sessions            Session[]
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 }
 
 model Company {
-  id          String   @id @default(cuid())
-  userId      String
-  name        String
-  legalName   String?
-  siren       String?  @db.VarChar(9)
-  siret       String?  @db.VarChar(14)
-  addressLine String
-  postalCode  String?
-  city        String?
-  phone       String
-  email       String
-  website     String
-  activity    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String            @id @default(cuid())
+  userId           String
+  name             String
+  legalName        String?
+  siren            String?           @db.VarChar(9)
+  siret            String?           @db.VarChar(14)
+  addressLine      String
+  postalCode       String?
+  city             String?
+  phone            String
+  email            String
+  website          String
+  activity         String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformListings PlatformListing[]
+  scanJobs         ScanJob[]
 
   @@index([userId])
+}
+
+model ScanBatch {
+  id             String          @id @default(cuid())
+  organizationId String
+  status         ScanBatchStatus @default(QUEUED)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  organization   User            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  jobs           ScanJob[]
+
+  @@index([organizationId, createdAt])
+}
+
+model ScanJob {
+  id                  String           @id @default(cuid())
+  scanBatchId         String
+  businessId          String
+  platform            PlatformName
+  status              ScanJobStatus    @default(QUEUED)
+  errorMessage        String?          @db.Text
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  discoveryCandidates Json?
+  platformListingId   String?
+  business            Company          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  platformListing     PlatformListing? @relation(fields: [platformListingId], references: [id], onDelete: SetNull)
+  scanBatch           ScanBatch        @relation(fields: [scanBatchId], references: [id], onDelete: Cascade)
+
+  @@unique([scanBatchId, businessId, platform])
+  @@index([status, createdAt])
+  @@index([businessId, platform])
+}
+
+model PlatformListing {
+  id                  String                    @id @default(cuid())
+  businessId          String
+  platform            PlatformName
+  url                 String?
+  externalId          String?
+  isUserVerified      Boolean                   @default(false)
+  discoveryConfidence Int?
+  status              PlatformListingStatus     @default(NOT_LINKED)
+  complianceScore     Int                       @default(0)
+  lastScannedAt       DateTime?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  business            Company                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  mismatches          ListingMismatch[]
+  scanJobs            ScanJob[]
+  snapshots           PlatformListingSnapshot[]
+
+  @@unique([businessId, platform])
+  @@index([businessId, status])
+}
+
+model PlatformListingSnapshot {
+  id                String          @id @default(cuid())
+  platformListingId String
+  name              String?
+  address           String?
+  phone             String?
+  email             String?
+  website           String?
+  hours             Json?
+  rawData           Json
+  fetchedAt         DateTime        @default(now())
+  platformListing   PlatformListing @relation(fields: [platformListingId], references: [id], onDelete: Cascade)
+
+  @@index([platformListingId, fetchedAt])
+}
+
+model ListingMismatch {
+  id                String           @id @default(cuid())
+  platformListingId String
+  field             ListingField
+  expectedValue     String?
+  actualValue       String?
+  severity          MismatchSeverity
+  detectedAt        DateTime         @default(now())
+  platformListing   PlatformListing  @relation(fields: [platformListingId], references: [id], onDelete: Cascade)
+
+  @@index([platformListingId, detectedAt])
 }
 
 model Account {
@@ -82,4 +172,48 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+enum ScanBatchStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ScanJobStatus {
+  QUEUED
+  RUNNING
+  SUCCESS
+  FAILED
+  NEEDS_REVIEW
+  NOT_FOUND
+}
+
+enum PlatformName {
+  GOOGLE
+  APPLE
+  YELP
+}
+
+enum PlatformListingStatus {
+  NOT_LINKED
+  OK
+  ERROR
+  NEEDS_REVIEW
+}
+
+enum ListingField {
+  NAME
+  ADDRESS
+  PHONE
+  EMAIL
+  WEBSITE
+  HOURS
+}
+
+enum MismatchSeverity {
+  LOW
+  MEDIUM
+  HIGH
 }

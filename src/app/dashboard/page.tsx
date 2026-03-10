@@ -1,6 +1,7 @@
 import { ClientSessionPanel } from "@/features/auth/components/client-session-panel";
 import { SignOutButton } from "@/features/auth/components/sign-out-button";
 import { requireOnboardedUser } from "@/features/onboarding/lib";
+import { ScannerPanel } from "@/features/scanner/components/scanner-panel";
 
 export default async function DashboardPage() {
   const user = await requireOnboardedUser();
@@ -48,7 +49,13 @@ export default async function DashboardPage() {
                 ))}
               </ul>
             </div>
-            <ClientSessionPanel />
+            <ScannerPanel
+              companies={user.companies.map((company) => ({
+                city: company.city,
+                id: company.id,
+                name: company.name,
+              }))}
+            />
           </section>
         ) : (
           <section className="rounded-[var(--radius-xl)] border border-dashed border-border bg-card/80 p-8 text-center shadow-[var(--shadow-sm)]">

@@ -1,6 +1,11 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 
 import { companyFormSchema } from "@/features/onboarding/company-form";
+import {
+  createScanBatch,
+  enqueueScanJobs,
+} from "@/features/scanner/orchestration";
+import { triggerQueuedScanJobs } from "@/features/scanner/worker";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -67,6 +72,7 @@ export async function POST(request: NextRequest) {
     activity: true,
   } as const;
   let company;
+  let createdScanBatchId: string | null = null;
 
   if (typeof body.companyId === "string" && body.companyId !== "") {
     const existingCompany = await prisma.company.findFirst({
@@ -80,7 +86,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (!existingCompany) {
-      return NextResponse.json({ message: "Company not found." }, { status: 404 });
+      return NextResponse.json(
+        { message: "Company not found." },
+        { status: 404 },
+      );
     }
 
     company = await prisma.company.update({
@@ -91,10 +100,23 @@ export async function POST(request: NextRequest) {
       select: companySelect,
     });
   } else {
-    company = await prisma.company.create({
-      data: companyPayload,
-      select: companySelect,
+    const createdResult = await prisma.$transaction(async (tx) => {
+      const nextCompany = await tx.company.create({
+        data: companyPayload,
+        select: companySelect,
+      });
+      const scanBatch = await createScanBatch(session.user.id, tx);
+
+      await enqueueScanJobs(scanBatch.id, [nextCompany.id], tx);
+
+      return {
+        company: nextCompany,
+        scanBatchId: scanBatch.id,
+      };
     });
+
+    company = createdResult.company;
+    createdScanBatchId = createdResult.scanBatchId;
   }
 
   if (body.completeOnboarding === true) {
@@ -106,6 +128,10 @@ export async function POST(request: NextRequest) {
         onboardingCompleted: true,
       },
     });
+  }
+
+  if (createdScanBatchId) {
+    after(() => triggerQueuedScanJobs());
   }
 
   return NextResponse.json({
@@ -122,6 +148,7 @@ export async function POST(request: NextRequest) {
       activity: company.activity ?? "",
       website: company.website,
     },
+    scanBatchId: createdScanBatchId,
     redirectTo: body.completeOnboarding === true ? "/dashboard" : null,
   });
 }
