@@ -2,22 +2,22 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
+  BusinessPlatformCard,
   ComplianceProgressBar,
-  MismatchList,
-  NoMismatchState,
-  PlatformStatusBadge,
   ScanNowButton,
   ScanStatusBadge,
 } from "@/features/dashboard/components";
 import { getBusinessDetail } from "@/features/dashboard/queries";
-import { platformStatusMap, scanBatchStatusMap } from "@/features/dashboard/status-mapping";
+import { scanBatchStatusMap } from "@/features/dashboard/status-mapping";
 import { requireOnboardedUser } from "@/features/onboarding/lib";
 
 type BusinessDetailPageProps = {
   params: Promise<{ id: string }>;
 };
 
-export default async function BusinessDetailPage({ params }: BusinessDetailPageProps) {
+export default async function BusinessDetailPage({
+  params,
+}: BusinessDetailPageProps) {
   const user = await requireOnboardedUser();
   const { id } = await params;
   const business = await getBusinessDetail(id, user.id);
@@ -32,7 +32,7 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
       <div className="space-y-6">
         <Link
           href="/dashboard"
-          className="group/button inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent bg-clip-padding px-2.5 text-[0.8rem] font-medium whitespace-nowrap transition-all outline-none select-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="group/button hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent bg-clip-padding px-2.5 text-[0.8rem] font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:ring-3"
         >
           <svg
             className="size-3.5"
@@ -49,10 +49,10 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
           Retour au dashboard
         </Link>
 
-        <section className="rounded-[var(--radius-xl)] border border-border/70 bg-card/90 p-8 shadow-[var(--shadow-md)] backdrop-blur">
+        <section className="border-border/70 bg-card/90 rounded-[var(--radius-xl)] border p-8 shadow-[var(--shadow-md)] backdrop-blur">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-4">
-              <div className="flex size-14 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-primary/10 text-primary">
+              <div className="bg-primary/10 text-primary flex size-14 shrink-0 items-center justify-center rounded-[var(--radius-lg)]">
                 <svg
                   className="size-7"
                   xmlns="http://www.w3.org/2000/svg"
@@ -86,7 +86,7 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
                 <p className="text-muted-foreground text-base">
                   {business.legalName && business.legalName !== business.name
                     ? business.legalName
-                    : business.activity ?? "Entreprise surveillée"}
+                    : (business.activity ?? "Entreprise surveillée")}
                 </p>
               </div>
             </div>
@@ -100,10 +100,11 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
         {/* Left Column */}
         <div className="space-y-6">
           {/* Source of Truth */}
-          <section className="rounded-[var(--radius-lg)] border border-border/70 bg-card/90 p-6 shadow-[var(--shadow-sm)] backdrop-blur">
+          <section className="border-border/70 bg-card/90 rounded-[var(--radius-lg)] border p-6 shadow-[var(--shadow-sm)] backdrop-blur">
             <h2 className="text-lg font-semibold">Informations de référence</h2>
             <p className="text-muted-foreground mt-1 text-sm">
-              Ces données constituent votre source de vérité pour la comparaison.
+              Ces données constituent votre source de vérité pour la
+              comparaison.
             </p>
             <dl className="mt-5 grid gap-4 sm:grid-cols-2">
               <InfoItem label="Dénomination" value={business.name} />
@@ -111,12 +112,14 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
               <InfoItem label="Téléphone" value={business.phone} />
               <InfoItem label="Email" value={business.email} />
               <InfoItem label="Site internet" value={business.website} isLink />
-              {business.siren && <InfoItem label="SIREN" value={business.siren} />}
+              {business.siren && (
+                <InfoItem label="SIREN" value={business.siren} />
+              )}
             </dl>
           </section>
 
           {/* Platforms */}
-          <section className="rounded-[var(--radius-lg)] border border-border/70 bg-card/90 p-6 shadow-[var(--shadow-sm)] backdrop-blur">
+          <section className="border-border/70 bg-card/90 rounded-[var(--radius-lg)] border p-6 shadow-[var(--shadow-sm)] backdrop-blur">
             <h2 className="text-lg font-semibold">Plateformes surveillées</h2>
             <p className="text-muted-foreground mt-1 text-sm">
               État de vos fiches sur chaque plateforme.
@@ -127,61 +130,29 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
                 const listing = business.platformListings.find(
                   (p) => p.platform === platform,
                 );
-                const status = listing?.status ?? "NOT_LINKED";
-                const statusDisplay = platformStatusMap[status];
 
                 return (
-                  <div
+                  <BusinessPlatformCard
                     key={platform}
-                    className="rounded-[var(--radius-md)] border border-border/60 bg-background/70 p-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <PlatformStatusBadge platform={platform} status={status} />
-                        {listing?.url && (
-                          <a
-                            href={listing.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-                          >
-                            Voir la fiche →
-                          </a>
-                        )}
-                      </div>
-                      <div className="text-right text-sm">
-                        <p className={statusDisplay.colorClass}>
-                          {statusDisplay.label}
-                        </p>
-                        {listing?.lastScannedAt && (
-                          <p className="text-xs text-muted-foreground">
-                            Scanné le{" "}
-                            {new Date(listing.lastScannedAt).toLocaleDateString("fr-FR")}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {listing && listing.complianceScore > 0 && (
-                      <div className="mt-3">
-                        <ComplianceProgressBar score={listing.complianceScore} />
-                      </div>
-                    )}
-
-                    {/* Mismatches for this platform */}
-                    {listing && listing.mismatches.length > 0 ? (
-                      <div className="mt-4">
-                        <p className="mb-2 text-sm font-medium text-foreground">
-                          Incohérences détectées
-                        </p>
-                        <MismatchList mismatches={listing.mismatches} />
-                      </div>
-                    ) : listing && status === "OK" ? (
-                      <div className="mt-4">
-                        <NoMismatchState />
-                      </div>
-                    ) : null}
-                  </div>
+                    businessId={business.id}
+                    platform={platform}
+                    listing={
+                      listing
+                        ? {
+                            ...listing,
+                            lastScannedAt:
+                              listing.lastScannedAt?.toISOString() ?? null,
+                            mismatches: listing.mismatches.map((mismatch) => ({
+                              id: mismatch.id,
+                              field: mismatch.field,
+                              expectedValue: mismatch.expectedValue,
+                              actualValue: mismatch.actualValue,
+                              severity: mismatch.severity,
+                            })),
+                          }
+                        : null
+                    }
+                  />
                 );
               })}
             </div>
@@ -191,17 +162,17 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
         {/* Right Column - Sidebar */}
         <div className="space-y-6">
           {/* Compliance Score */}
-          <section className="rounded-[var(--radius-lg)] border border-border/70 bg-card/90 p-6 shadow-[var(--shadow-sm)] backdrop-blur">
+          <section className="border-border/70 bg-card/90 rounded-[var(--radius-lg)] border p-6 shadow-[var(--shadow-sm)] backdrop-blur">
             <h2 className="text-lg font-semibold">Score de conformité</h2>
             <p className="text-muted-foreground mt-1 text-sm">
               Score moyen sur toutes les plateformes.
             </p>
             <div className="mt-5">
               <div className="flex items-baseline gap-2">
-                <span className="text-5xl font-bold tabular-nums text-foreground">
+                <span className="text-foreground text-5xl font-bold tabular-nums">
                   {business.complianceScore}
                 </span>
-                <span className="text-2xl text-muted-foreground">%</span>
+                <span className="text-muted-foreground text-2xl">%</span>
               </div>
               <ComplianceProgressBar
                 score={business.complianceScore}
@@ -212,7 +183,7 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
           </section>
 
           {/* Scan History */}
-          <section className="rounded-[var(--radius-lg)] border border-border/70 bg-card/90 p-6 shadow-[var(--shadow-sm)] backdrop-blur">
+          <section className="border-border/70 bg-card/90 rounded-[var(--radius-lg)] border p-6 shadow-[var(--shadow-sm)] backdrop-blur">
             <h2 className="text-lg font-semibold">Historique des scans</h2>
             <p className="text-muted-foreground mt-1 text-sm">
               Dernières analyses effectuées.
@@ -221,14 +192,17 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
             {business.scanHistory.length > 0 ? (
               <ul className="mt-5 space-y-3">
                 {business.scanHistory.slice(0, 5).map((scan) => {
-                  const statusDisplay = scanBatchStatusMap[scan.status as keyof typeof scanBatchStatusMap];
+                  const statusDisplay =
+                    scanBatchStatusMap[
+                      scan.status as keyof typeof scanBatchStatusMap
+                    ];
                   return (
                     <li
                       key={scan.batchId}
-                      className="flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-border/60 px-3 py-2"
+                      className="border-border/60 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border px-3 py-2"
                     >
                       <div>
-                        <p className="text-sm font-medium text-foreground">
+                        <p className="text-foreground text-sm font-medium">
                           {new Date(scan.date).toLocaleDateString("fr-FR", {
                             day: "numeric",
                             month: "short",
@@ -237,7 +211,7 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
                             minute: "2-digit",
                           })}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-muted-foreground text-xs">
                           {scan.platformsCount} plateforme
                           {scan.platformsCount > 1 ? "s" : ""}
                           {scan.errorsCount > 0
@@ -255,8 +229,8 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
                 })}
               </ul>
             ) : (
-              <div className="mt-5 rounded-[var(--radius-md)] border border-dashed border-border bg-muted/30 p-4 text-center">
-                <p className="text-sm text-muted-foreground">
+              <div className="border-border bg-muted/30 mt-5 rounded-[var(--radius-md)] border border-dashed p-4 text-center">
+                <p className="text-muted-foreground text-sm">
                   Aucun scan effectué pour le moment.
                 </p>
               </div>
@@ -279,10 +253,10 @@ function InfoItem({
 }) {
   return (
     <div className="space-y-1">
-      <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      <dt className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
         {label}
       </dt>
-      <dd className="text-sm text-foreground">
+      <dd className="text-foreground text-sm">
         {value ? (
           isLink ? (
             <a

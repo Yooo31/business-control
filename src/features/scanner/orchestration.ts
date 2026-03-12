@@ -51,6 +51,39 @@ export async function enqueueScanJobs(
   return jobs;
 }
 
+export async function enqueueScanJobsForPlatforms(
+  scanBatchId: string,
+  businessPlatformPairs: Array<{
+    businessId: string;
+    platform: PrismaPlatformName;
+    platformListingId?: string;
+  }>,
+  tx: PrismaTransaction = prisma,
+) {
+  const jobs = await Promise.all(
+    businessPlatformPairs.map((pair) =>
+      tx.scanJob.create({
+        data: {
+          scanBatchId,
+          businessId: pair.businessId,
+          platform: pair.platform,
+          ...(pair.platformListingId
+            ? { platformListingId: pair.platformListingId }
+            : {}),
+        },
+        select: {
+          id: true,
+          businessId: true,
+          platform: true,
+          status: true,
+        },
+      }),
+    ),
+  );
+
+  return jobs;
+}
+
 export async function createScanForBusinesses(input: {
   organizationId: string;
   businessIds: string[];
@@ -86,6 +119,73 @@ export async function createScanForBusinesses(input: {
     return {
       scanBatchId: scanBatch.id,
       businessIds: uniqueBusinessIds,
+      jobs,
+    };
+  });
+}
+
+export async function createScanForBusinessPlatforms(input: {
+  organizationId: string;
+  businessPlatforms: Array<{
+    businessId: string;
+    platform: PrismaPlatformName;
+    platformListingId?: string;
+  }>;
+}) {
+  const uniqueBusinessPlatforms = Array.from(
+    new Map(
+      input.businessPlatforms.map((entry) => [
+        `${entry.businessId}:${entry.platform}`,
+        entry,
+      ]),
+    ).values(),
+  );
+
+  if (uniqueBusinessPlatforms.length === 0) {
+    throw new Error(
+      "At least one business/platform pair is required to create a scan.",
+    );
+  }
+
+  const ownedBusinesses = await prisma.company.findMany({
+    where: {
+      userId: input.organizationId,
+      id: {
+        in: uniqueBusinessPlatforms.map((entry) => entry.businessId),
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  const ownedBusinessIds = new Set(
+    ownedBusinesses.map((business) => business.id),
+  );
+
+  if (
+    uniqueBusinessPlatforms.some(
+      (entry) => !ownedBusinessIds.has(entry.businessId),
+    )
+  ) {
+    throw new Error(
+      "One or more businesses do not belong to this organization.",
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const scanBatch = await createScanBatch(input.organizationId, tx);
+    const jobs = await enqueueScanJobsForPlatforms(
+      scanBatch.id,
+      uniqueBusinessPlatforms,
+      tx,
+    );
+
+    return {
+      scanBatchId: scanBatch.id,
+      businessIds: Array.from(
+        new Set(uniqueBusinessPlatforms.map((entry) => entry.businessId)),
+      ),
       jobs,
     };
   });

@@ -12,6 +12,7 @@ import {
 } from "@/features/scanner/constants";
 import { getPlatformScanner } from "@/features/scanner/platform-scanners";
 import { computeComplianceScore } from "@/features/scanner/scoring";
+import type { NormalizedListing } from "@/features/scanner/types";
 import {
   type Company,
   PlatformListingStatus,
@@ -167,24 +168,19 @@ async function persistNeedsReviewResult(
 
 async function persistSuccessfulResult(
   job: QueuedScanJob,
-  candidate: {
-    url: string;
+  result: {
     confidenceScore: number;
-    rawData: Record<string, unknown>;
+    externalId: string | null;
+    normalizedListing: NormalizedListing;
+    rawPayload: Record<string, unknown>;
+    url: string;
   },
 ) {
-  const scanner = getPlatformScanner(fromPrismaPlatformName(job.platform));
-  const rawListing = await scanner.fetch(candidate.url);
-  const normalizedListing = scanner.normalize(rawListing);
   const mismatches = compareListings(
     buildSourceOfTruthListing(job.business),
-    normalizedListing,
+    result.normalizedListing,
   );
   const complianceScore = computeComplianceScore(mismatches);
-  const externalId =
-    typeof candidate.rawData.externalId === "string"
-      ? candidate.rawData.externalId
-      : rawListing.externalId;
 
   await prisma.$transaction(async (tx) => {
     const listing = await tx.platformListing.upsert({
@@ -195,26 +191,20 @@ async function persistSuccessfulResult(
         },
       },
       update: {
-        status: getPlatformListingStatusFromJobOutcome(
-          ScanJobStatus.SUCCESS,
-          mismatches.length,
-        ),
-        url: candidate.url,
-        externalId,
-        discoveryConfidence: Math.round(candidate.confidenceScore),
+        status: getPlatformListingStatusFromJobOutcome(ScanJobStatus.SUCCESS),
+        url: result.url,
+        externalId: result.externalId,
+        discoveryConfidence: Math.round(result.confidenceScore),
         complianceScore,
         lastScannedAt: new Date(),
       },
       create: {
         businessId: job.businessId,
         platform: job.platform,
-        status: getPlatformListingStatusFromJobOutcome(
-          ScanJobStatus.SUCCESS,
-          mismatches.length,
-        ),
-        url: candidate.url,
-        externalId,
-        discoveryConfidence: Math.round(candidate.confidenceScore),
+        status: getPlatformListingStatusFromJobOutcome(ScanJobStatus.SUCCESS),
+        url: result.url,
+        externalId: result.externalId,
+        discoveryConfidence: Math.round(result.confidenceScore),
         complianceScore,
         lastScannedAt: new Date(),
       },
@@ -223,16 +213,16 @@ async function persistSuccessfulResult(
     await tx.platformListingSnapshot.create({
       data: {
         platformListingId: listing.id,
-        name: normalizedListing.name,
-        address: normalizedListing.address,
-        phone: normalizedListing.phone,
-        email: normalizedListing.email,
-        website: normalizedListing.website,
+        name: result.normalizedListing.name,
+        address: result.normalizedListing.address,
+        phone: result.normalizedListing.phone,
+        email: result.normalizedListing.email,
+        website: result.normalizedListing.website,
         hours:
-          normalizedListing.hours === null
+          result.normalizedListing.hours === null
             ? Prisma.JsonNull
-            : (normalizedListing.hours as Prisma.InputJsonValue),
-        rawData: rawListing.payload as Prisma.InputJsonValue,
+            : (result.normalizedListing.hours as Prisma.InputJsonValue),
+        rawData: result.rawPayload as Prisma.InputJsonValue,
       },
     });
 
@@ -268,8 +258,63 @@ async function persistSuccessfulResult(
   });
 }
 
+async function scanLinkedListing(
+  job: QueuedScanJob,
+  listing: {
+    id: string;
+    url: string;
+  },
+) {
+  const scanner = getPlatformScanner(fromPrismaPlatformName(job.platform));
+  const rawListing = await scanner.fetch(listing.url);
+  const normalizedListing = scanner.normalize(rawListing);
+
+  await persistSuccessfulResult(job, {
+    url: listing.url,
+    confidenceScore: 100,
+    externalId: rawListing.externalId,
+    normalizedListing,
+    rawPayload: rawListing.payload,
+  });
+}
+
 async function executeQueuedScanJob(job: QueuedScanJob) {
   const scanner = getPlatformScanner(fromPrismaPlatformName(job.platform));
+  const existingListing = await prisma.platformListing.findUnique({
+    where: {
+      businessId_platform: {
+        businessId: job.businessId,
+        platform: job.platform,
+      },
+    },
+    select: {
+      id: true,
+      status: true,
+      url: true,
+    },
+  });
+
+  if (
+    existingListing?.status === PlatformListingStatus.LINKED &&
+    existingListing.url
+  ) {
+    await prisma.scanJob.update({
+      where: {
+        id: job.id,
+      },
+      data: {
+        discoveryCandidates: [] as Prisma.InputJsonValue,
+        platformListingId: existingListing.id,
+      },
+    });
+
+    await scanLinkedListing(job, {
+      id: existingListing.id,
+      url: existingListing.url,
+    });
+    return;
+  }
+
   const business = buildBusinessScanInput(job.business);
   const candidates = await scanner.discover(business);
 
@@ -294,7 +339,20 @@ async function executeQueuedScanJob(job: QueuedScanJob) {
     return;
   }
 
-  await persistSuccessfulResult(job, bestCandidate);
+  const rawListing = await scanner.fetch(bestCandidate.url);
+  const normalizedListing = scanner.normalize(rawListing);
+  const externalId =
+    typeof bestCandidate.rawData.externalId === "string"
+      ? bestCandidate.rawData.externalId
+      : rawListing.externalId;
+
+  await persistSuccessfulResult(job, {
+    url: bestCandidate.url,
+    confidenceScore: bestCandidate.confidenceScore,
+    externalId,
+    normalizedListing,
+    rawPayload: rawListing.payload,
+  });
 }
 
 async function markBatchAsRunning(scanBatchId: string) {
@@ -369,24 +427,39 @@ export async function processQueuedScanJobs(input?: {
         },
       });
 
-      await prisma.platformListing.upsert({
+      const existingListing = await prisma.platformListing.findUnique({
         where: {
           businessId_platform: {
             businessId: job.businessId,
             platform: job.platform,
           },
         },
-        update: {
-          status: PlatformListingStatus.ERROR,
-          lastScannedAt: new Date(),
-        },
-        create: {
-          businessId: job.businessId,
-          platform: job.platform,
-          status: PlatformListingStatus.ERROR,
-          lastScannedAt: new Date(),
+        select: {
+          id: true,
+          status: true,
         },
       });
+
+      if (existingListing) {
+        await prisma.platformListing.update({
+          where: {
+            id: existingListing.id,
+          },
+          data: {
+            status: existingListing.status,
+            lastScannedAt: new Date(),
+          },
+        });
+      } else {
+        await prisma.platformListing.create({
+          data: {
+            businessId: job.businessId,
+            platform: job.platform,
+            status: PlatformListingStatus.NOT_LINKED,
+            lastScannedAt: new Date(),
+          },
+        });
+      }
     } finally {
       await refreshScanBatchStatus(job.scanBatchId);
     }
@@ -414,19 +487,24 @@ export async function drainQueuedScanJobs(input?: {
     }
   }
 
-  logger.info(`Scanner drain completed with ${String(totalProcessedJobs)} jobs.`);
+  logger.info(
+    `Scanner drain completed with ${String(totalProcessedJobs)} jobs.`,
+  );
 
   return {
     processedJobs: totalProcessedJobs,
   };
 }
 
-export function triggerQueuedScanJobs(input?: { limit?: number; logger?: Logger }) {
-  globalForScannerWorker.scannerDrainPromise ??= drainQueuedScanJobs(input).finally(
-    () => {
-      globalForScannerWorker.scannerDrainPromise = undefined;
-    },
-  );
+export function triggerQueuedScanJobs(input?: {
+  limit?: number;
+  logger?: Logger;
+}) {
+  globalForScannerWorker.scannerDrainPromise ??= drainQueuedScanJobs(
+    input,
+  ).finally(() => {
+    globalForScannerWorker.scannerDrainPromise = undefined;
+  });
 
   return globalForScannerWorker.scannerDrainPromise;
 }

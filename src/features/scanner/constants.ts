@@ -84,19 +84,15 @@ export function toPrismaMismatchSeverity(
 
 export function getPlatformListingStatusFromJobOutcome(
   status: PrismaScanJobStatus,
-  mismatchCount: number,
 ): PrismaPlatformListingStatus {
   switch (status) {
     case PrismaScanJobStatus.NOT_FOUND:
       return PrismaPlatformListingStatus.NOT_LINKED;
     case PrismaScanJobStatus.NEEDS_REVIEW:
       return PrismaPlatformListingStatus.NEEDS_REVIEW;
-    case PrismaScanJobStatus.FAILED:
-      return PrismaPlatformListingStatus.ERROR;
     case PrismaScanJobStatus.SUCCESS:
-      return mismatchCount === 0
-        ? PrismaPlatformListingStatus.OK
-        : PrismaPlatformListingStatus.ERROR;
+      return PrismaPlatformListingStatus.LINKED;
+    case PrismaScanJobStatus.FAILED:
     case PrismaScanJobStatus.QUEUED:
     case PrismaScanJobStatus.RUNNING:
       return PrismaPlatformListingStatus.NOT_LINKED;

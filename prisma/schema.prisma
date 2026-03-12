@@ -198,8 +198,7 @@ enum PlatformName {
 
 enum PlatformListingStatus {
   NOT_LINKED
-  OK
-  ERROR
+  LINKED
   NEEDS_REVIEW
 }
 

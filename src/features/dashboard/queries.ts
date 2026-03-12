@@ -38,10 +38,14 @@ export async function getBusinessesForDashboard(userId: string) {
 
   return businesses.map((business) => {
     // Calculate average compliance score
-    const platformScores = business.platformListings.map((p) => p.complianceScore);
+    const platformScores = business.platformListings.map(
+      (p) => p.complianceScore,
+    );
     const averageScore =
       platformScores.length > 0
-        ? Math.round(platformScores.reduce((a, b) => a + b, 0) / platformScores.length)
+        ? Math.round(
+            platformScores.reduce((a, b) => a + b, 0) / platformScores.length,
+          )
         : 0;
 
     // Get the last scan status
@@ -52,13 +56,19 @@ export async function getBusinessesForDashboard(userId: string) {
     const platformMap = new Map(
       business.platformListings.map((p) => [p.platform, p.status]),
     );
-    const platforms = (["GOOGLE", "APPLE", "YELP"] as const).map((platform) => ({
-      platform,
-      status: platformMap.get(platform) ?? "NOT_LINKED",
-    }));
+    const platforms = (["GOOGLE", "APPLE", "YELP"] as const).map(
+      (platform) => ({
+        platform,
+        status: platformMap.get(platform) ?? "NOT_LINKED",
+      }),
+    );
 
     // Format address
-    const addressParts = [business.addressLine, business.postalCode, business.city].filter(Boolean);
+    const addressParts = [
+      business.addressLine,
+      business.postalCode,
+      business.city,
+    ].filter(Boolean);
     const address = addressParts.length > 0 ? addressParts.join(", ") : null;
 
     return {
@@ -99,6 +109,8 @@ export async function getBusinessDetail(businessId: string, userId: string) {
           platform: true,
           status: true,
           url: true,
+          isUserVerified: true,
+          discoveryConfidence: true,
           complianceScore: true,
           lastScannedAt: true,
           mismatches: {
@@ -139,10 +151,14 @@ export async function getBusinessDetail(businessId: string, userId: string) {
   }
 
   // Calculate overall compliance score
-  const platformScores = business.platformListings.map((p) => p.complianceScore);
+  const platformScores = business.platformListings.map(
+    (p) => p.complianceScore,
+  );
   const averageScore =
     platformScores.length > 0
-      ? Math.round(platformScores.reduce((a, b) => a + b, 0) / platformScores.length)
+      ? Math.round(
+          platformScores.reduce((a, b) => a + b, 0) / platformScores.length,
+        )
       : 0;
 
   // Get the last scan status
@@ -150,7 +166,11 @@ export async function getBusinessDetail(businessId: string, userId: string) {
   const scanState = getBusinessScanState(lastScanBatchStatus);
 
   // Format address
-  const addressParts = [business.addressLine, business.postalCode, business.city].filter(Boolean);
+  const addressParts = [
+    business.addressLine,
+    business.postalCode,
+    business.city,
+  ].filter(Boolean);
   const address = addressParts.length > 0 ? addressParts.join(", ") : null;
 
   // Build scan history from scan jobs, grouped by batch
@@ -168,7 +188,8 @@ export async function getBusinessDetail(businessId: string, userId: string) {
           status: job.scanBatch.status,
           date: job.createdAt,
           platformsCount: 1,
-          errorsCount: job.status === "FAILED" || job.status === "NEEDS_REVIEW" ? 1 : 0,
+          errorsCount:
+            job.status === "FAILED" || job.status === "NEEDS_REVIEW" ? 1 : 0,
         });
       }
       return acc;
@@ -200,5 +221,9 @@ export async function getBusinessDetail(businessId: string, userId: string) {
   };
 }
 
-export type DashboardBusiness = Awaited<ReturnType<typeof getBusinessesForDashboard>>[number];
-export type BusinessDetailData = NonNullable<Awaited<ReturnType<typeof getBusinessDetail>>>;
+export type DashboardBusiness = Awaited<
+  ReturnType<typeof getBusinessesForDashboard>
+>[number];
+export type BusinessDetailData = NonNullable<
+  Awaited<ReturnType<typeof getBusinessDetail>>
+>;

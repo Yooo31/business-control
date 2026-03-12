@@ -3,10 +3,12 @@ import { z } from "zod";
 
 import {
   createScanForAllBusinesses,
+  createScanForBusinessPlatforms,
   createScanForBusinesses,
   listSupportedPlatforms,
   serializeScanJobPlatform,
 } from "@/features/scanner/orchestration";
+import { toPrismaPlatformName } from "@/features/scanner/constants";
 import { triggerQueuedScanJobs } from "@/features/scanner/worker";
 import { auth } from "@/lib/auth";
 
@@ -15,6 +17,10 @@ const scanRequestSchema = z
     businessId: z.string().trim().min(1).optional(),
     businessIds: z.array(z.string().trim().min(1)).optional(),
     allBusinesses: z.boolean().optional(),
+    platforms: z
+      .array(z.enum(["google", "apple", "yelp"]))
+      .min(1)
+      .optional(),
   })
   .superRefine((value, ctx) => {
     const hasSingleBusinessId = typeof value.businessId === "string";
@@ -51,15 +57,26 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const businessIds = [
+      ...(parsedBody.data.businessId ? [parsedBody.data.businessId] : []),
+      ...(parsedBody.data.businessIds ?? []),
+    ];
     const result = parsedBody.data.allBusinesses
       ? await createScanForAllBusinesses(session.user.id)
-      : await createScanForBusinesses({
-          organizationId: session.user.id,
-          businessIds: [
-            ...(parsedBody.data.businessId ? [parsedBody.data.businessId] : []),
-            ...(parsedBody.data.businessIds ?? []),
-          ],
-        });
+      : parsedBody.data.platforms
+        ? await createScanForBusinessPlatforms({
+            organizationId: session.user.id,
+            businessPlatforms: businessIds.flatMap((businessId) =>
+              parsedBody.data.platforms!.map((platform) => ({
+                businessId,
+                platform: toPrismaPlatformName(platform),
+              })),
+            ),
+          })
+        : await createScanForBusinesses({
+            organizationId: session.user.id,
+            businessIds,
+          });
 
     after(() => triggerQueuedScanJobs());
 

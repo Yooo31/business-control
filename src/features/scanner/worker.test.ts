@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { discoverMock, prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     platformListing: {
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
       upsert: vi.fn(),
     },
     scanBatch: {
@@ -30,7 +33,10 @@ vi.mock("@/features/scanner/platform-scanners", () => ({
   })),
 }));
 
-import { drainQueuedScanJobs, processQueuedScanJobs } from "@/features/scanner/worker";
+import {
+  drainQueuedScanJobs,
+  processQueuedScanJobs,
+} from "@/features/scanner/worker";
 
 type FindManyArgs = {
   where: Record<string, unknown>;
@@ -74,6 +80,9 @@ describe("scanner worker", () => {
   beforeEach(() => {
     discoverMock.mockReset();
     prismaMock.$transaction.mockReset();
+    prismaMock.platformListing.create.mockReset();
+    prismaMock.platformListing.findUnique.mockReset();
+    prismaMock.platformListing.update.mockReset();
     prismaMock.platformListing.upsert.mockReset();
     prismaMock.scanBatch.update.mockReset();
     prismaMock.scanJob.findMany.mockReset();
@@ -93,6 +102,7 @@ describe("scanner worker", () => {
     prismaMock.scanJob.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.scanJob.update.mockResolvedValue({});
     prismaMock.scanBatch.update.mockResolvedValue({});
+    prismaMock.platformListing.findUnique.mockResolvedValue(null);
     prismaMock.platformListing.upsert.mockResolvedValue({});
 
     const result = await processQueuedScanJobs({
@@ -110,7 +120,10 @@ describe("scanner worker", () => {
 
   it("keeps draining after a failed batch until no queued jobs remain", async () => {
     const queuedFinds = [
-      [createQueuedJob("job-1", "batch-1"), createQueuedJob("job-2", "batch-1")],
+      [
+        createQueuedJob("job-1", "batch-1"),
+        createQueuedJob("job-2", "batch-1"),
+      ],
       [createQueuedJob("job-3", "batch-2")],
       [],
     ];
@@ -126,6 +139,7 @@ describe("scanner worker", () => {
     prismaMock.scanJob.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.scanJob.update.mockResolvedValue({});
     prismaMock.scanBatch.update.mockResolvedValue({});
+    prismaMock.platformListing.findUnique.mockResolvedValue(null);
     prismaMock.platformListing.upsert.mockResolvedValue({});
 
     const result = await drainQueuedScanJobs({

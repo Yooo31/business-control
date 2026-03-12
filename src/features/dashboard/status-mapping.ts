@@ -1,4 +1,8 @@
-import type { PlatformListingStatus, ScanBatchStatus, ScanJobStatus } from "@/generated/prisma/client";
+import type {
+  PlatformListingStatus,
+  ScanBatchStatus,
+  ScanJobStatus,
+} from "@/generated/prisma/client";
 
 export type StatusTone = "neutral" | "success" | "warning" | "danger" | "info";
 
@@ -11,25 +15,19 @@ export type StatusDisplay = {
 
 export const platformStatusMap: Record<PlatformListingStatus, StatusDisplay> = {
   NOT_LINKED: {
-    label: "Non lié",
+    label: "Not found",
     tone: "neutral",
     colorClass: "text-muted-foreground",
     bgClass: "bg-muted",
   },
-  OK: {
-    label: "Conforme",
+  LINKED: {
+    label: "Linked",
     tone: "success",
     colorClass: "text-emerald-600",
     bgClass: "bg-emerald-500/15",
   },
-  ERROR: {
-    label: "Erreur",
-    tone: "danger",
-    colorClass: "text-rose-600",
-    bgClass: "bg-rose-500/15",
-  },
   NEEDS_REVIEW: {
-    label: "À revoir",
+    label: "Needs review",
     tone: "warning",
     colorClass: "text-amber-600",
     bgClass: "bg-amber-500/15",
@@ -102,7 +100,11 @@ export const scanBatchStatusMap: Record<ScanBatchStatus, StatusDisplay> = {
   },
 };
 
-export type BusinessScanState = "never_scanned" | "scanning" | "completed" | "failed";
+export type BusinessScanState =
+  | "never_scanned"
+  | "scanning"
+  | "completed"
+  | "failed";
 
 export function getBusinessScanState(
   lastScanStatus: ScanBatchStatus | null | undefined,
