@@ -16,17 +16,11 @@ export const platformStatusMap: Record<PlatformListingStatus, StatusDisplay> = {
     colorClass: "text-muted-foreground",
     bgClass: "bg-muted",
   },
-  OK: {
+  LINKED: {
     label: "Conforme",
     tone: "success",
     colorClass: "text-emerald-600",
     bgClass: "bg-emerald-500/15",
-  },
-  ERROR: {
-    label: "Erreur",
-    tone: "danger",
-    colorClass: "text-rose-600",
-    bgClass: "bg-rose-500/15",
   },
   NEEDS_REVIEW: {
     label: "À revoir",

@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import type { PlatformListingStatus } from "@/generated/prisma/client";
+
 import {
   ComplianceProgressBar,
+  ListingLinkForm,
   MismatchList,
   NoMismatchState,
   PlatformStatusBadge,
@@ -127,8 +130,8 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
                 const listing = business.platformListings.find(
                   (p) => p.platform === platform,
                 );
-                const status = listing?.status ?? "NOT_LINKED";
-                const statusDisplay = platformStatusMap[status];
+                const status: PlatformListingStatus = listing?.status ?? "NOT_LINKED";
+                const statusDisplay = platformStatusMap[status] ?? platformStatusMap.NOT_LINKED;
 
                 return (
                   <div
@@ -168,7 +171,6 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
                       </div>
                     )}
 
-                    {/* Mismatches for this platform */}
                     {listing && listing.mismatches.length > 0 ? (
                       <div className="mt-4">
                         <p className="mb-2 text-sm font-medium text-foreground">
@@ -176,11 +178,22 @@ export default async function BusinessDetailPage({ params }: BusinessDetailPageP
                         </p>
                         <MismatchList mismatches={listing.mismatches} />
                       </div>
-                    ) : listing && status === "OK" ? (
+                    ) : listing && listing.status === "LINKED" ? (
                       <div className="mt-4">
                         <NoMismatchState />
                       </div>
                     ) : null}
+
+                    <div className="mt-4 border-t border-border/40 pt-4">
+                      <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {listing?.url ? "URL de la fiche" : "Lier manuellement"}
+                      </p>
+                      <ListingLinkForm
+                        businessId={business.id}
+                        platform={platform}
+                        currentUrl={listing?.url}
+                      />
+                    </div>
                   </div>
                 );
               })}

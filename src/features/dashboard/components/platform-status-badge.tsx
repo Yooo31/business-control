@@ -1,4 +1,4 @@
-import type { PlatformName } from "@/generated/prisma/client";
+import type { PlatformListingStatus, PlatformName } from "@/generated/prisma/client";
 
 import { cn } from "@/lib/utils";
 
@@ -6,7 +6,7 @@ import { platformStatusMap, type StatusDisplay } from "../status-mapping";
 
 type PlatformStatusBadgeProps = {
   platform: PlatformName;
-  status: keyof typeof platformStatusMap;
+  status: PlatformListingStatus;
   className?: string;
 };
 
@@ -37,12 +37,19 @@ const platformIcons: Record<PlatformName, React.ReactNode> = {
   ),
 };
 
+const fallbackStatus: StatusDisplay = {
+  label: "Non lié",
+  tone: "neutral",
+  colorClass: "text-muted-foreground",
+  bgClass: "bg-muted",
+};
+
 export function PlatformStatusBadge({
   platform,
   status,
   className,
 }: PlatformStatusBadgeProps) {
-  const statusDisplay: StatusDisplay = platformStatusMap[status];
+  const statusDisplay = platformStatusMap[status] ?? fallbackStatus;
 
   return (
     <div
@@ -62,7 +69,7 @@ export function PlatformStatusBadge({
 type PlatformStatusDotsProps = {
   platforms: Array<{
     platform: PlatformName;
-    status: keyof typeof platformStatusMap;
+    status: PlatformListingStatus;
   }>;
   className?: string;
 };
@@ -74,7 +81,7 @@ export function PlatformStatusDots({
   return (
     <div className={cn("flex items-center gap-2", className)}>
       {platforms.map(({ platform, status }) => {
-        const statusDisplay = platformStatusMap[status];
+        const statusDisplay = platformStatusMap[status] ?? fallbackStatus;
         return (
           <div
             key={platform}

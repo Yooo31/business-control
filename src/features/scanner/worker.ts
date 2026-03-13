@@ -75,6 +75,42 @@ async function refreshScanBatchStatus(scanBatchId: string) {
 }
 
 async function persistNotFoundResult(job: QueuedScanJob) {
+  const existingListing = await prisma.platformListing.findUnique({
+    where: {
+      businessId_platform: {
+        businessId: job.businessId,
+        platform: job.platform,
+      },
+    },
+    select: { url: true, isUserVerified: true },
+  });
+
+  if (existingListing?.url) {
+    await prisma.platformListing.update({
+      where: {
+        businessId_platform: {
+          businessId: job.businessId,
+          platform: job.platform,
+        },
+      },
+      data: {
+        status: PlatformListingStatus.NEEDS_REVIEW,
+        lastScannedAt: new Date(),
+      },
+    });
+
+    await prisma.scanJob.update({
+      where: {
+        id: job.id,
+      },
+      data: {
+        status: ScanJobStatus.NEEDS_REVIEW,
+        completedAt: new Date(),
+      },
+    });
+    return;
+  }
+
   const listing = await prisma.platformListing.upsert({
     where: {
       businessId_platform: {
@@ -271,6 +307,29 @@ async function persistSuccessfulResult(
 async function executeQueuedScanJob(job: QueuedScanJob) {
   const scanner = getPlatformScanner(fromPrismaPlatformName(job.platform));
   const business = buildBusinessScanInput(job.business);
+
+  const existingListing = await prisma.platformListing.findUnique({
+    where: {
+      businessId_platform: {
+        businessId: job.businessId,
+        platform: job.platform,
+      },
+    },
+    select: {
+      url: true,
+      isUserVerified: true,
+    },
+  });
+
+  if (existingListing?.url) {
+    await persistSuccessfulResult(job, {
+      url: existingListing.url,
+      confidenceScore: existingListing.isUserVerified ? 100 : 80,
+      rawData: {},
+    });
+    return;
+  }
+
   const candidates = await scanner.discover(business);
 
   await prisma.scanJob.update({
@@ -369,6 +428,16 @@ export async function processQueuedScanJobs(input?: {
         },
       });
 
+      const existingListing = await prisma.platformListing.findUnique({
+        where: {
+          businessId_platform: {
+            businessId: job.businessId,
+            platform: job.platform,
+          },
+        },
+        select: { url: true, isUserVerified: true },
+      });
+
       await prisma.platformListing.upsert({
         where: {
           businessId_platform: {
@@ -377,13 +446,15 @@ export async function processQueuedScanJobs(input?: {
           },
         },
         update: {
-          status: PlatformListingStatus.ERROR,
+          status: PlatformListingStatus.NEEDS_REVIEW,
           lastScannedAt: new Date(),
         },
         create: {
           businessId: job.businessId,
           platform: job.platform,
-          status: PlatformListingStatus.ERROR,
+          status: PlatformListingStatus.NEEDS_REVIEW,
+          url: existingListing?.url ?? null,
+          isUserVerified: existingListing?.isUserVerified ?? false,
           lastScannedAt: new Date(),
         },
       });
